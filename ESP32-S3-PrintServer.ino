@@ -818,6 +818,8 @@ void startConfigPortal() {
   while (true) {
     configServer.handleClient();
     checkResetButton(); // также обновляет LED каждую итерацию
+    checkPrinterStatusPeriodic(); // статус принтера опрашивается и без домашнего WiFi
+    servePrintClients();          // печать работает и через собственную точку доступа 192.168.4.1
     delay(2);
   }
 }
@@ -1637,13 +1639,11 @@ void setup() {
   loadUiLanguage(); // читаем сохранённый язык интерфейса (по умолчанию — русский)
   deviceUuid = loadOrCreateDeviceUuid(); // нужен и для UPnP UDN, и ни от чего сетевого не зависит
 
-  bool connected = connectWiFi();
-  if (!connected) {
-    // Блокирующий вызов — вернётся только через ESP.restart()
-    // после успешного сохранения новых настроек.
-    startConfigPortal();
-  }
-
+  // Поднимаем серверы печати ДО попытки подключения к домашнему WiFi —
+  // так печать через Raw/LPR работает и в собственной точке доступа
+  // платы (192.168.4.1), даже если домашняя сеть ещё не настроена
+  // (или недоступна) и startConfigPortal() ниже уйдёт в свой
+  // блокирующий цикл на неопределённое время.
   rawServer.begin();
   rawServer.setNoDelay(true);
   Serial.printf("[TCP] RAW print server слушает порт %u\n", RAW_PORT);
@@ -1651,23 +1651,23 @@ void setup() {
   lprServer.begin();
   lprServer.setNoDelay(true);
   Serial.printf("[TCP] LPR/LPD print server слушает порт %u\n", LPR_PORT);
+
+  bool connected = connectWiFi();
+  if (!connected) {
+    // Блокирующий вызов — вернётся только через ESP.restart()
+    // после успешного сохранения новых настроек. Печать при этом уже
+    // работает через собственную точку доступа — см. servePrintClients()
+    // внутри цикла startConfigPortal().
+    startConfigPortal();
+  }
 }
 
-void loop() {
-  checkResetButton(); // также обновляет LED каждую итерацию
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] Соединение потеряно, переподключаемся...");
-    if (!connectWiFi()) {
-      startConfigPortal(); // не вернётся, кроме как через reboot
-    }
-  }
-
-  configServer.handleClient(); // портал теперь работает постоянно, не только в AP-режиме
-  loopSsdp();                  // SSDP: отвечает на M-SEARCH, периодически шлёт ssdp:alive
-
-  checkPrinterStatusPeriodic(); // раз в PRINTER_STATUS_INTERVAL_MS опрашивает @PJL INFO STATUS
-
+// Общий приём и обработка клиентов RAW/LPR — вызывается и из обычного
+// loop() (когда подключены к домашней сети), и из блокирующего цикла
+// startConfigPortal() (когда WiFi ещё не настроен и плата сидит в
+// собственной точке доступа 192.168.4.1). Так печать работает в любом
+// режиме — не только после успешного подключения к чужой сети.
+void servePrintClients() {
   WiFiClient rawClient = rawServer.available();
   if (rawClient) {
     if (printerCanAcceptJob()) {
@@ -1687,6 +1687,24 @@ void loop() {
       lprClient.stop();
     }
   }
+}
+
+void loop() {
+  checkResetButton(); // также обновляет LED каждую итерацию
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Соединение потеряно, переподключаемся...");
+    if (!connectWiFi()) {
+      startConfigPortal(); // не вернётся, кроме как через reboot
+    }
+  }
+
+  configServer.handleClient(); // портал теперь работает постоянно, не только в AP-режиме
+  loopSsdp();                  // SSDP: отвечает на M-SEARCH, периодически шлёт ssdp:alive
+
+  checkPrinterStatusPeriodic(); // раз в PRINTER_STATUS_INTERVAL_MS опрашивает @PJL INFO STATUS
+
+  servePrintClients();
 
   delay(5);
 }

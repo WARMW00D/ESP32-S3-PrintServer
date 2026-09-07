@@ -45,7 +45,9 @@ interface.
   network so it shows up automatically where supported.
 - **WiFi setup portal** — on first boot (or after a settings reset) the
   board starts its own access point with a captive setup page; no
-  hard-coded credentials in the source.
+  hard-coded credentials in the source. **Printing works immediately
+  through this access point too** (`192.168.4.1`), even before — or
+  without ever — configuring a home network.
 
 ## Hardware
 
@@ -119,16 +121,25 @@ Board settings used during development:
    version note.
 2. Flash the sketch.
 3. On first boot the board starts an access point called
-   `PrintServer-Setup` (password `12345678`). Connect to it and open
-   `http://192.168.4.1` to enter your WiFi credentials.
-4. Once connected, open the board's IP address in a browser for the live
-   dashboard, or visit `http://ESP32-PrintServer.local` if your OS
-   supports mDNS.
-5. On your computer, add a new network printer pointing at the board's IP
-   — either **Raw/AppSocket on port 9100** or **LPR on port 515** — and
+   `PrintServer-Setup` (password `12345678`). **You can print right away
+   through this access point** — connect a computer to it and add a
+   network printer pointing at `192.168.4.1` (Raw port 9100 or LPR port
+   515), no home WiFi required. This also works any time the board can't
+   reach your configured network, so it always falls back to a usable
+   printer instead of going silent.
+4. To also make it reachable on your regular home network, open
+   `http://192.168.4.1` while connected to that access point and enter
+   your WiFi credentials.
+5. Once connected to your home network, open the board's IP address in a
+   browser for the live dashboard, or visit
+   `http://ESP32-PrintServer.local` if your OS supports mDNS.
+6. On your computer, add a new network printer pointing at whichever
+   address applies (the board's home-network IP once configured, or
+   `192.168.4.1` while it's still just running its own access point) —
+   either **Raw/AppSocket on port 9100** or **LPR on port 515** — and
    install the printer's normal driver. Step-by-step instructions for both
    Windows and macOS are shown right on the dashboard, with your printer's
-   actual model name and the board's IP filled in automatically.
+   actual model name and the board's current IP filled in automatically.
 
 ## Acknowledgements
 
