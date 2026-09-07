@@ -150,4 +150,4 @@ core regression, to the web dashboard and bilingual UI. 🤖
 
 ## License
 
-MIT 
+Use, modify, and share freely — built for a personal home/office infrastructure project.
