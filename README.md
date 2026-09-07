@@ -90,7 +90,7 @@ Board package: **esp32 by Espressif Systems**.
 
 > **Important — core version.** Arduino-ESP32 core **3.3.11** (based on
 > ESP-IDF 5.5.5) has a confirmed regression that breaks the native USB Host
-> driver on the ESP32-S3 (`HUB: Root port reset failed`, no device ever
+> driver on the ESP32-S3 (`HUB: Root port reset failed`), no device ever
 > enumerates — see
 > [espressif/arduino-esp32#12783](https://github.com/espressif/arduino-esp32/issues/12783)).
 > Use **3.3.10** (or whichever version fixes this upstream) via Boards
