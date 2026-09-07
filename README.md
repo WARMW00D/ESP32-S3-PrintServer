@@ -56,6 +56,18 @@ interface.
   only one of them is wired to the native USB-OTG peripheral and can act
   as a host; the other is a UART-to-USB bridge used for flashing and is
   not usable for this purpose.
+- **Solder jumpers.** Many ESP32-S3 boards ship with two solder-bridge
+  pads on the PCB that need to be bridged (shorted) with a blob of solder
+  before USB Host mode works at all:
+  - the **OTG** jumper — enables the native USB-OTG port for Host mode;
+    without it the port stays in device-only mode and no printer will
+    ever be detected;
+  - the **RGB** jumper — powers the onboard addressable RGB LED, used
+    here for at-a-glance status (not required for printing itself, but
+    worth bridging if you want the status LED to work).
+
+  Check your specific board's silkscreen/schematic for the exact pad
+  labels and location — naming varies slightly between vendors.
 
 ## Known-good / known-tricky printers
 
