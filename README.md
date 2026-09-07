@@ -150,4 +150,4 @@ core regression, to the web dashboard and bilingual UI. 🤖
 
 ## License
 
-MIT (or your license of choice — update this section before publishing).
+MIT 
