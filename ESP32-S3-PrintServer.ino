@@ -70,6 +70,8 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include <Adafruit_NeoPixel.h>
+#include "esp_eap_client.h" // WPA2-Enterprise (PEAP/TTLS+MSCHAPv2) — актуальный заголовок для IDF 5.1+;
+                            // старый esp_wpa2.h убран из SDK и даёт ошибку компиляции "Use esp_eap_client.h instead"
 #include "EspUsbHost.h"
 #include "LedTypes.h"
 
@@ -153,6 +155,9 @@ uint8_t chunkBuffer[CHUNK_SIZE];
 
 String savedSsid;
 String savedPassword;
+bool savedIsEnterprise = false; // true — WPA2-Enterprise (PEAP/TTLS + MSCHAPv2), иначе обычный WPA2-Personal
+String savedEapIdentity;        // внешняя identity (часто совпадает с username, но не всегда)
+String savedEapUsername;        // внутренний username для MSCHAPv2
 
 uint32_t resetButtonPressStart = 0;
 uint32_t resetButtonLastReport = 0;
@@ -264,16 +269,31 @@ bool loadWifiCredentials() {
   prefs.begin("wifi", true); // read-only
   savedSsid = prefs.getString("ssid", "");
   savedPassword = prefs.getString("pass", "");
+  savedIsEnterprise = prefs.getBool("ent", false);
+  savedEapIdentity = prefs.getString("eapId", "");
+  savedEapUsername = prefs.getString("eapUser", "");
   prefs.end();
   return savedSsid.length() > 0;
 }
 
-void saveWifiCredentials(const String &ssid, const String &pass) {
+// enterprise=true — WPA2-Enterprise (PEAP/TTLS+MSCHAPv2): identity — внешняя
+// identity (если оставить пустой, используется значение username),
+// username — логин для MSCHAPv2, pass — соответствующий пароль.
+// Для обычной домашней сети (enterprise=false) identity/username не нужны.
+void saveWifiCredentials(const String &ssid, const String &pass, bool enterprise,
+                          const String &identity, const String &username) {
   prefs.begin("wifi", false);
   prefs.putString("ssid", ssid);
   prefs.putString("pass", pass);
+  prefs.putBool("ent", enterprise);
+  prefs.putString("eapId", identity);
+  prefs.putString("eapUser", username);
   prefs.end();
-  Serial.printf("[NVS] Сохранены новые WiFi-настройки: SSID=\"%s\"\n", ssid.c_str());
+  savedIsEnterprise = enterprise;
+  savedEapIdentity = identity;
+  savedEapUsername = username;
+  Serial.printf("[NVS] Сохранены новые WiFi-настройки: SSID=\"%s\"%s\n",
+                ssid.c_str(), enterprise ? " (WPA2-Enterprise)" : "");
 }
 
 void clearWifiCredentials() {
@@ -362,6 +382,11 @@ String buildWifiSetupHtml() {
   String macLabel   = en ? "Board MAC address: "                     : "MAC-адрес платы: ";
   String nextLang      = en ? "ru" : "en";
   String nextLangLabel = en ? "\u0420\u0443\u0441\u0441\u043a\u0438\u0439" : "English";
+  String entLabel   = en ? "This is a WPA2-Enterprise network (802.1X, e.g. eduroam / corporate WiFi)"
+                          : "Это сеть WPA2-Enterprise (802.1X, например eduroam / корпоративный WiFi)";
+  String identityLabel = en ? "Identity (leave blank to use Username)" : "Identity (оставьте пустым — возьмётся Username)";
+  String usernameLabel = en ? "Username" : "Имя пользователя (Username)";
+  String entPassLabel  = en ? "Password" : "Пароль";
 
   String html;
   html += "<!DOCTYPE html><html lang=\"" + uiLanguage + "\"><head><meta charset=\"utf-8\">"
@@ -385,6 +410,10 @@ String buildWifiSetupHtml() {
           "font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}"
           ".btn-lang:hover{background:#7f1d1d}"
           ".mac{margin-top:14px;font-size:.78rem;color:#64748b}"
+          ".ent-row{display:flex;align-items:center;gap:8px;margin-top:16px}"
+          ".ent-row input[type=checkbox]{width:auto;margin:0}"
+          ".ent-row label{margin:0;font-size:.85rem;color:#94a3b8}"
+          "#entFields{display:none}"
           "</style></head><body><div class=\"wrap\">"
           "<div class=\"topbar\"><h1>&#x1F5A8; " + heading + "</h1>"
           "<form method=\"POST\" action=\"/set-lang\">"
@@ -394,8 +423,23 @@ String buildWifiSetupHtml() {
           "<div class=\"card\"><form action=\"/save\" method=\"POST\">"
           "<label>" + ssidLabel + "</label>"
           "<input type=\"text\" name=\"ssid\" required>"
-          "<label>" + passLabel + "</label>"
-          "<input type=\"password\" name=\"pass\">"
+          "<div class=\"ent-row\">"
+          "<input type=\"checkbox\" id=\"entChk\" name=\"enterprise\" value=\"1\" "
+          "onchange=\"document.getElementById('entFields').style.display=this.checked?'block':'none';"
+          "document.getElementById('passLbl').style.display=this.checked?'none':'block';"
+          "document.getElementById('passFld').style.display=this.checked?'none':'block';\">"
+          "<label for=\"entChk\">" + entLabel + "</label>"
+          "</div>"
+          "<div id=\"passLbl\"><label>" + passLabel + "</label></div>"
+          "<input id=\"passFld\" type=\"password\" name=\"pass\">"
+          "<div id=\"entFields\">"
+          "<label>" + identityLabel + "</label>"
+          "<input type=\"text\" name=\"identity\">"
+          "<label>" + usernameLabel + "</label>"
+          "<input type=\"text\" name=\"eapuser\">"
+          "<label>" + entPassLabel + "</label>"
+          "<input type=\"password\" name=\"eappass\">"
+          "</div>"
           "<button type=\"submit\">" + saveBtn + "</button>"
           "</form><p class=\"mac\">" + macLabel + WiFi.softAPmacAddress() + "</p>"
           "</div></div></body></html>";
@@ -714,6 +758,10 @@ void handleConfigRoot() {
 void handleConfigSave() {
   String ssid = configServer.arg("ssid");
   String pass = configServer.arg("pass");
+  bool enterprise = configServer.hasArg("enterprise");
+  String identity = configServer.arg("identity");
+  String eapUser = configServer.arg("eapuser");
+  String eapPass = configServer.arg("eappass");
   bool en = (uiLanguage == "en");
 
   if (ssid.length() == 0) {
@@ -721,7 +769,20 @@ void handleConfigSave() {
     return;
   }
 
-  saveWifiCredentials(ssid, pass);
+  if (enterprise) {
+    if (eapUser.length() == 0) {
+      configServer.send(400, "text/plain",
+        en ? "Username is required for a WPA2-Enterprise network"
+           : "Для сети WPA2-Enterprise нужно указать Username");
+      return;
+    }
+    // Для Enterprise-сети в основном поле "pass" храним именно
+    // EAP-пароль (обычное поле pass формы в этом режиме скрыто в UI
+    // и не заполняется).
+    saveWifiCredentials(ssid, eapPass, true, identity, eapUser);
+  } else {
+    saveWifiCredentials(ssid, pass, false, "", "");
+  }
 
   String msg = en
     ? "<h3>Saved. Rebooting...</h3><p>If the network is available, the board will "
@@ -1297,10 +1358,32 @@ bool connectWiFi() {
 
   Serial.printf("[WiFi] Подключение к \"%s\" ...\n", savedSsid.c_str());
   setLedState(LED_STATE_WIFI_CONNECTING);
+  WiFi.disconnect(true); // сбрасываем любое предыдущее состояние (в т.ч. EAP), прежде чем настраивать заново
   WiFi.mode(WIFI_STA);
   delay(100); // без паузы radio ещё не готово, macAddress() вернёт нули
   Serial.printf("[WiFi] MAC-адрес платы: %s\n", WiFi.macAddress().c_str());
-  WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
+
+  if (savedIsEnterprise) {
+    // WPA2-Enterprise (PEAP/TTLS + MSCHAPv2) — тот же механизм, что и у
+    // корпоративных/университетских сетей вроде eduroam. Пароль от точки
+    // доступа тут не нужен, WiFi.begin() вызывается без него — вся
+    // аутентификация идёт через отдельно настроенный EAP-клиент.
+    String identity = savedEapIdentity.length() > 0 ? savedEapIdentity : savedEapUsername;
+    esp_eap_client_set_identity((const uint8_t *)identity.c_str(), identity.length());
+    esp_eap_client_set_username((const uint8_t *)savedEapUsername.c_str(), savedEapUsername.length());
+    esp_eap_client_set_password((const uint8_t *)savedPassword.c_str(), savedPassword.length());
+    esp_err_t entErr = esp_wifi_sta_enterprise_enable();
+    if (entErr != ESP_OK) {
+      Serial.printf("[WiFi] esp_wifi_sta_enterprise_enable() вернул ошибку: %s\n", esp_err_to_name(entErr));
+    }
+    WiFi.begin(savedSsid.c_str());
+  } else {
+    // Обычная домашняя сеть WPA2-Personal — на случай, если до этого
+    // подключались к Enterprise-сети, явно выключаем EAP-клиент, иначе
+    // его состояние может помешать обычной PSK-аутентификации.
+    esp_wifi_sta_enterprise_disable();
+    WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
+  }
 
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {

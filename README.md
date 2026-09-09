@@ -48,6 +48,11 @@ interface.
   hard-coded credentials in the source. **Printing works immediately
   through this access point too** (`192.168.4.1`), even before — or
   without ever — configuring a home network.
+- **WPA2-Enterprise (802.1X) support** — in addition to regular WPA2-PSK
+  networks, the setup page can also join PEAP/TTLS+MSCHAPv2
+  WPA2-Enterprise networks (e.g. `eduroam` or a corporate WiFi with a
+  RADIUS server), using an Identity/Username/Password prompt instead of
+  a plain network password.
 
 ## Hardware
 
@@ -90,7 +95,7 @@ Board package: **esp32 by Espressif Systems**.
 
 > **Important — core version.** Arduino-ESP32 core **3.3.11** (based on
 > ESP-IDF 5.5.5) has a confirmed regression that breaks the native USB Host
-> driver on the ESP32-S3 (`HUB: Root port reset failed`), no device ever
+> driver on the ESP32-S3 (`HUB: Root port reset failed`, no device ever
 > enumerates — see
 > [espressif/arduino-esp32#12783](https://github.com/espressif/arduino-esp32/issues/12783)).
 > Use **3.3.10** (or whichever version fixes this upstream) via Boards
@@ -150,4 +155,4 @@ core regression, to the web dashboard and bilingual UI. 🤖
 
 ## License
 
-Use, modify, and share freely — built for a personal home/office infrastructure project.
+MIT (or your license of choice — update this section before publishing).
