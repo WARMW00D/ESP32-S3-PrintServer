@@ -376,17 +376,42 @@ String buildWifiSetupHtml() {
   bool en = (uiLanguage == "en");
   String title      = en ? "WiFi Setup"                              : "Настройка WiFi";
   String heading    = en ? "WiFi setup for the print server"         : "Настройка WiFi для принт-сервера";
-  String ssidLabel  = en ? "SSID (network name)"                     : "SSID (имя сети)";
-  String passLabel  = en ? "Password"                                : "Пароль";
+  String scanBtn    = en ? "Scan networks"                           : "Сканировать сети";
+  String scanning   = en ? "Scanning..."                             : "Сканирование...";
+  String chooseNet  = en ? "Choose a network"                        : "Выберите сеть";
+  String chooseHint = en ? "Press \u201cScan networks\u201d to see what's available."
+                          : "Нажмите «Сканировать сети», чтобы увидеть доступные сети.";
+  String manualLabel = en ? "Or enter manually (SSID)"                : "Или введите вручную (SSID)";
+  String manualHint  = en ? "Fill in if the network is hidden or wasn't found by the scan."
+                           : "Заполните, если сеть скрыта или не найдена при сканировании.";
+  String netTypeLabel = en ? "Network type"                          : "Тип сети";
+  String personalOpt  = en ? "Regular (password or open)"            : "Обычная (пароль или открытая)";
+  String enterpriseOpt = en ? "WPA2-Enterprise (802.1X)"              : "WPA2-Enterprise (802.1X)";
+  String passLabel  = en ? "Network password"                        : "Пароль сети";
+  String passHint   = en ? "Leave blank to keep the currently saved password. For an open network with no "
+                           "password, check the box below."
+                         : "Оставьте пустым, чтобы сохранить текущий сохранённый пароль. Для открытой сети "
+                           "без пароля отметьте галочку ниже.";
+  String openLabel  = en ? "This is an open network (no password)"   : "Это открытая сеть (без пароля)";
   String saveBtn    = en ? "Save and connect"                        : "Сохранить и подключиться";
-  String macLabel   = en ? "Board MAC address: "                     : "MAC-адрес платы: ";
+  String macLabel   = en ? "MAC address"                             : "MAC-адрес";
   String nextLang      = en ? "ru" : "en";
   String nextLangLabel = en ? "\u0420\u0443\u0441\u0441\u043a\u0438\u0439" : "English";
   String entLabel   = en ? "This is a WPA2-Enterprise network (802.1X, e.g. eduroam / corporate WiFi)"
                           : "Это сеть WPA2-Enterprise (802.1X, например eduroam / корпоративный WiFi)";
-  String identityLabel = en ? "Identity (leave blank to use Username)" : "Identity (оставьте пустым — возьмётся Username)";
-  String usernameLabel = en ? "Username" : "Имя пользователя (Username)";
+  String identityLabel = en ? "Identity" : "Identity";
+  String identityHint  = en ? "Usually matches your username. Format depends on your organization (e.g. "
+                              "user@domain or DOMAIN\\user). Blank = keep the current value."
+                            : "Обычно совпадает с именем пользователя. Формат зависит от организации "
+                              "(например, user@domain или DOMAIN\\user). Пустое поле = оставить текущее значение.";
+  String usernameLabel = en ? "Username" : "Имя пользователя";
   String entPassLabel  = en ? "Password" : "Пароль";
+  String entPassHint   = en ? "Blank = keep the currently saved password. PEAP/MSCHAPv2 without a CA "
+                              "certificate is supported; if the network requires EAP-TLS or server "
+                              "certificate validation, this won't work."
+                            : "Пустое поле = оставить текущий сохранённый пароль. Поддерживаются "
+                              "PEAP/MSCHAPv2 без CA-сертификата; если сеть требует EAP-TLS или проверку "
+                              "сертификата сервера — эта схема не подойдёт.";
 
   String html;
   html += "<!DOCTYPE html><html lang=\"" + uiLanguage + "\"><head><meta charset=\"utf-8\">"
@@ -395,24 +420,35 @@ String buildWifiSetupHtml() {
           "*{margin:0;padding:0;box-sizing:border-box}"
           "body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;"
           "background:#0f172a;color:#e2e8f0;min-height:100vh}"
-          ".wrap{max-width:420px;margin:0 auto;padding:20px}"
+          ".wrap{max-width:460px;margin:0 auto;padding:20px}"
           ".topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:18px}"
           "h1{font-size:1.15rem;font-weight:600;line-height:1.4}"
-          ".card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px}"
+          ".card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:14px}"
           "label{display:block;margin-top:14px;font-size:.85rem;color:#94a3b8}"
-          "input{width:100%;padding:10px;font-size:1rem;box-sizing:border-box;margin-top:6px;"
-          "background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0}"
+          "input[type=text],input[type=password]{width:100%;padding:10px;font-size:1rem;box-sizing:border-box;"
+          "margin-top:6px;background:#0f172a;border:1px solid #475569;border-radius:8px;color:#e2e8f0}"
           "input:focus{outline:none;border-color:#3b82f6}"
+          ".hint{font-size:.78rem;color:#64748b;margin-top:6px}"
           "button{margin-top:20px;width:100%;padding:12px;font-size:1rem;font-weight:600;"
           "background:#3b82f6;color:#fff;border:none;border-radius:8px;cursor:pointer}"
           "button:hover{background:#2563eb}"
+          "button:disabled{opacity:.6;cursor:default}"
           ".btn-lang{background:#991b1b;color:#fff;padding:8px 16px;border:none;border-radius:8px;"
           "font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}"
           ".btn-lang:hover{background:#7f1d1d}"
-          ".mac{margin-top:14px;font-size:.78rem;color:#64748b}"
-          ".ent-row{display:flex;align-items:center;gap:8px;margin-top:16px}"
-          ".ent-row input[type=checkbox]{width:auto;margin:0}"
-          ".ent-row label{margin:0;font-size:.85rem;color:#94a3b8}"
+          ".mac-row{display:flex;justify-content:space-between;font-size:.82rem;color:#94a3b8;margin-bottom:10px}"
+          ".mac-row b{color:#e2e8f0}"
+          ".chk-row{display:flex;align-items:center;gap:8px;margin-top:16px}"
+          ".chk-row input[type=checkbox]{width:auto;margin:0}"
+          ".chk-row label{margin:0;font-size:.85rem;color:#94a3b8}"
+          ".radio-row{margin-top:8px;display:flex;align-items:center;gap:8px}"
+          ".radio-row input[type=radio]{width:auto;margin:0}"
+          ".radio-row label{margin:0;font-size:.9rem;color:#e2e8f0}"
+          "#netList{margin-top:10px}"
+          ".net-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;"
+          "border-bottom:1px solid #293548;cursor:pointer;font-size:.9rem}"
+          ".net-row:last-child{border-bottom:none}"
+          ".net-rssi{color:#64748b;font-size:.78rem;white-space:nowrap;margin-left:10px}"
           "#entFields{display:none}"
           "</style></head><body><div class=\"wrap\">"
           "<div class=\"topbar\"><h1>&#x1F5A8; " + heading + "</h1>"
@@ -420,30 +456,112 @@ String buildWifiSetupHtml() {
           "<input type=\"hidden\" name=\"lang\" value=\"" + nextLang + "\">"
           "<button type=\"submit\" class=\"btn-lang\">" + nextLangLabel + "</button>"
           "</form></div>"
-          "<div class=\"card\"><form action=\"/save\" method=\"POST\">"
-          "<label>" + ssidLabel + "</label>"
-          "<input type=\"text\" name=\"ssid\" required>"
-          "<div class=\"ent-row\">"
-          "<input type=\"checkbox\" id=\"entChk\" name=\"enterprise\" value=\"1\" "
-          "onchange=\"document.getElementById('entFields').style.display=this.checked?'block':'none';"
-          "document.getElementById('passLbl').style.display=this.checked?'none':'block';"
-          "document.getElementById('passFld').style.display=this.checked?'none':'block';\">"
-          "<label for=\"entChk\">" + entLabel + "</label>"
+
+          "<div class=\"mac-row\"><span>" + macLabel + "</span><b>" + WiFi.softAPmacAddress() + "</b></div>"
+
+          "<form action=\"/save\" method=\"POST\">"
+
+          "<div class=\"card\">"
+          "<button type=\"button\" onclick=\"scanNets(this)\">" + scanBtn + "</button>"
+          "<div style=\"margin-top:16px\">"
+          "<label style=\"margin-top:0\">" + chooseNet + "</label>"
+          "<div class=\"hint\" id=\"scanHint\">" + chooseHint + "</div>"
+          "<div id=\"netList\"></div>"
           "</div>"
-          "<div id=\"passLbl\"><label>" + passLabel + "</label></div>"
-          "<input id=\"passFld\" type=\"password\" name=\"pass\">"
+          "<label>" + manualLabel + "</label>"
+          "<input type=\"text\" name=\"ssid\" id=\"ssidField\">"
+          "<div class=\"hint\">" + manualHint + "</div>"
+          "</div>"
+
+          "<div class=\"card\">"
+          "<label style=\"margin-top:0\">" + netTypeLabel + "</label>"
+          "<div class=\"radio-row\">"
+          "<input type=\"radio\" id=\"typePersonal\" name=\"nettype\" value=\"personal\" checked "
+          "onchange=\"toggleNetType()\">"
+          "<label for=\"typePersonal\">" + personalOpt + "</label>"
+          "</div>"
+          "<div class=\"radio-row\">"
+          "<input type=\"radio\" id=\"typeEnterprise\" name=\"nettype\" value=\"enterprise\" "
+          "onchange=\"toggleNetType()\">"
+          "<label for=\"typeEnterprise\">" + enterpriseOpt + "</label>"
+          "</div>"
+
+          "<div id=\"personalFields\">"
+          "<label>" + passLabel + "</label>"
+          "<input type=\"password\" name=\"pass\" id=\"passFld\">"
+          "<div class=\"hint\">" + passHint + "</div>"
+          "<div class=\"chk-row\">"
+          "<input type=\"checkbox\" id=\"openChk\" name=\"open\" value=\"1\" "
+          "onchange=\"document.getElementById('passFld').disabled=this.checked;\">"
+          "<label for=\"openChk\">" + openLabel + "</label>"
+          "</div>"
+          "</div>"
+
           "<div id=\"entFields\">"
+          "<input type=\"hidden\" id=\"entHidden\" name=\"enterprise\" value=\"\">"
           "<label>" + identityLabel + "</label>"
           "<input type=\"text\" name=\"identity\">"
+          "<div class=\"hint\">" + identityHint + "</div>"
           "<label>" + usernameLabel + "</label>"
           "<input type=\"text\" name=\"eapuser\">"
           "<label>" + entPassLabel + "</label>"
           "<input type=\"password\" name=\"eappass\">"
+          "<div class=\"hint\">" + entPassHint + "</div>"
           "</div>"
+
           "<button type=\"submit\">" + saveBtn + "</button>"
-          "</form><p class=\"mac\">" + macLabel + WiFi.softAPmacAddress() + "</p>"
-          "</div></div></body></html>";
+          "</div>"
+          "</form>"
+          "</div>"
+
+          "<script>"
+          "function toggleNetType(){"
+          "var ent = document.getElementById('typeEnterprise').checked;"
+          "document.getElementById('entFields').style.display = ent ? 'block' : 'none';"
+          "document.getElementById('personalFields').style.display = ent ? 'none' : 'block';"
+          "document.getElementById('entHidden').value = ent ? '1' : '';"
+          "}"
+          "function pickNet(ssid){"
+          "document.getElementById('ssidField').value = ssid;"
+          "}"
+          "function scanNets(btn){"
+          "btn.disabled = true; var oldTxt = btn.textContent; btn.textContent = " + jsStrLit(scanning) + ";"
+          "fetch('/api/wifi-scan').then(function(r){return r.json()}).then(function(nets){"
+          "nets.sort(function(a,b){return b.rssi-a.rssi});"
+          "var box = document.getElementById('netList');"
+          "box.innerHTML = '';"
+          "nets.forEach(function(n){"
+          "var row = document.createElement('div');"
+          "row.className = 'net-row';"
+          "row.onclick = function(){ pickNet(n.ssid); };"
+          "var left = document.createElement('span');"
+          "left.textContent = n.ssid + (n.secure ? ' \\uD83D\\uDD12' : '');"
+          "var right = document.createElement('span');"
+          "right.className = 'net-rssi';"
+          "right.textContent = n.rssi + ' dBm';"
+          "row.appendChild(left); row.appendChild(right);"
+          "box.appendChild(row);"
+          "});"
+          "document.getElementById('scanHint').style.display = 'none';"
+          "btn.disabled = false; btn.textContent = oldTxt;"
+          "}).catch(function(){ btn.disabled = false; btn.textContent = oldTxt; });"
+          "}"
+          "</script>"
+          "</body></html>";
   return html;
+}
+
+// Небольшой помощник: превращает произвольную строку в безопасный JS-литерал
+// (нужен для подстановки переведённых UI-строк прямо в тело <script>).
+String jsStrLit(const String &s) {
+  String out = "'";
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '\'' || c == '\\') out += '\\';
+    out += c;
+  }
+  out += "'";
+  return out;
 }
 
 // Статус-страница показывается вместо формы настройки, когда плата уже
@@ -755,33 +873,68 @@ void handleConfigRoot() {
   configServer.send(200, "text/html; charset=utf-8", buildWifiSetupHtml());
 }
 
+// Сканирование доступных сетей для страницы первоначальной настройки.
+// Синхронный WiFi.scanNetworks() блокирует на ~1-3 секунды, что здесь
+// не проблема — этот запрос происходит только по явному нажатию кнопки
+// пользователем, пока плата и так просто ждёт ввода в форме, а не
+// занята приёмом задания печати.
+void handleWifiScanApi() {
+  int n = WiFi.scanNetworks();
+  String j = "[";
+  for (int i = 0; i < n; i++) {
+    if (i > 0) j += ",";
+    j += "{\"ssid\":\"" + jsonEscape(WiFi.SSID(i)) + "\",";
+    j += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
+    j += "\"secure\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") + "}";
+  }
+  j += "]";
+  WiFi.scanDelete();
+  configServer.send(200, "application/json; charset=utf-8", j);
+}
+
 void handleConfigSave() {
   String ssid = configServer.arg("ssid");
   String pass = configServer.arg("pass");
-  bool enterprise = configServer.hasArg("enterprise");
+  // ВАЖНО: поле "enterprise" — скрытый <input type="hidden">, которым
+  // управляет JS (переключение радиокнопок "Обычная"/"WPA2-Enterprise"),
+  // а не чекбокс. Скрытое поле всегда присутствует в отправленных
+  // данных формы, даже когда его значение — пустая строка (обычная
+  // сеть) — поэтому hasArg("enterprise") здесь был бы true ВСЕГДА,
+  // независимо от реального выбора. Нужно явно сравнивать значение.
+  bool enterprise = (configServer.arg("enterprise") == "1");
   String identity = configServer.arg("identity");
   String eapUser = configServer.arg("eapuser");
   String eapPass = configServer.arg("eappass");
+  // А вот "open" — настоящий чекбокс, при снятой галочке браузер вообще
+  // не включает его в отправку, так что hasArg() тут работает корректно.
+  bool openNetwork = configServer.hasArg("open");
   bool en = (uiLanguage == "en");
 
   if (ssid.length() == 0) {
-    configServer.send(400, "text/plain", en ? "SSID cannot be empty" : "SSID не может быть пустым");
+    configServer.send(400, "text/plain; charset=utf-8", en ? "SSID cannot be empty" : "SSID не может быть пустым");
     return;
   }
 
+  // Пустое поле означает "оставить как было сохранено" — так не нужно
+  // вслепую перепечатывать длинный пароль/Identity, если меняется что-то
+  // одно (например, просто выбрали другую сеть из списка). Явное
+  // намерение задать ИМЕННО пустой пароль для открытой сети выражается
+  // отдельной галочкой "Это открытая сеть".
   if (enterprise) {
-    if (eapUser.length() == 0) {
-      configServer.send(400, "text/plain",
+    String finalIdentity = identity.length() > 0 ? identity : savedEapIdentity;
+    String finalUser = eapUser.length() > 0 ? eapUser : savedEapUsername;
+    String finalPass = eapPass.length() > 0 ? eapPass : savedPassword;
+
+    if (finalUser.length() == 0) {
+      configServer.send(400, "text/plain; charset=utf-8",
         en ? "Username is required for a WPA2-Enterprise network"
            : "Для сети WPA2-Enterprise нужно указать Username");
       return;
     }
-    // Для Enterprise-сети в основном поле "pass" храним именно
-    // EAP-пароль (обычное поле pass формы в этом режиме скрыто в UI
-    // и не заполняется).
-    saveWifiCredentials(ssid, eapPass, true, identity, eapUser);
+    saveWifiCredentials(ssid, finalPass, true, finalIdentity, finalUser);
   } else {
-    saveWifiCredentials(ssid, pass, false, "", "");
+    String finalPass = openNetwork ? "" : (pass.length() > 0 ? pass : savedPassword);
+    saveWifiCredentials(ssid, finalPass, false, "", "");
   }
 
   String msg = en
@@ -848,6 +1001,7 @@ void ensurePortalRunning() {
   configServer.on("/save", HTTP_POST, handleConfigSave);
   configServer.on("/reset-wifi", HTTP_POST, handleResetWifiRequest);
   configServer.on("/set-lang", HTTP_POST, handleSetLanguage);
+  configServer.on("/api/wifi-scan", HTTP_GET, handleWifiScanApi);
   configServer.on("/api/status", HTTP_GET, handleApiStatus);
   configServer.on(UPNP_DESCRIPTION_PATH, HTTP_GET, handleUpnpDescription);
   configServer.onNotFound(handleConfigNotFound);
