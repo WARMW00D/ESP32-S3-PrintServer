@@ -9,7 +9,7 @@
     - LPR / LPD (RFC 1179)         -> TCP порт 515
     - Автономная настройка WiFi через точку доступа, если не
       удалось подключиться к сохранённой сети (WiFiManager-style)
-    - Сброс сохранённых WiFi-настроек удержанием кнопки 30с
+    - Сброс сохранённых WiFi-настроек удержанием кнопки (см. RESET_HOLD_MS)
     - Индикация состояния через адресный RGB-светодиод (WS2812)
 
   Библиотеки:
@@ -101,7 +101,7 @@ const IPAddress AP_IP(192, 168, 4, 1);
 // GPIO0 — часто это штатная кнопка BOOT на платах ESP32-S3, но
 // проверьте распиновку своей конкретной платы перед использованием.
 const int RESET_BUTTON_PIN = 0;
-const uint32_t RESET_HOLD_MS = 30000; // держать 30с для сброса
+const uint32_t RESET_HOLD_MS = 10000; // держать 10с для сброса
 
 // ---- SSDP / UPnP — обнаружение в сети + постоянный веб-портал ----
 const uint16_t SSDP_PORT = 1900;
@@ -301,6 +301,14 @@ void clearWifiCredentials() {
   prefs.clear();
   prefs.end();
   Serial.println("[NVS] WiFi-настройки очищены.");
+
+  // Сброс кнопкой (или через веб-портал) — это, по сути, "аварийный
+  // выход" на случай, если что-то настроено неправильно и нормальным
+  // путём (зайдя на портал) уже не попасть. Пароль портала в этой
+  // ситуации тоже должен слетать, иначе человек физически сбросит
+  // WiFi, но всё равно не сможет зайти на портал заново для повторной
+  // настройки, если забыл пароль портала.
+  savePortalPassword("");
 }
 
 // ==================== NVS: ХРАНЕНИЕ ЯЗЫКА ИНТЕРФЕЙСА ====================
@@ -322,6 +330,43 @@ void saveUiLanguage(const String &lang) {
   Serial.printf("[NVS] Язык интерфейса сохранён: %s\n", uiLanguage.c_str());
 }
 
+// ==================== NVS: ПАРОЛЬ ПОРТАЛА ====================
+// Логин зафиксирован как "admin" (HTTP Basic Auth всё равно требует пару
+// логин+пароль, а отдельное поле для логина только усложнило бы форму
+// без реальной пользы для одного устройства). Пустой пароль = защита
+// портала выключена — это сохраняет обратную совместимость с уже
+// работающими прошивками, где портал открыт для всех в сети.
+
+const char *PORTAL_AUTH_USER = "admin";
+String portalPassword = ""; // пусто = аутентификация не требуется
+
+void loadPortalPassword() {
+  prefs.begin("portal", true); // read-only
+  portalPassword = prefs.getString("pass", "");
+  prefs.end();
+}
+
+void savePortalPassword(const String &pass) {
+  portalPassword = pass;
+  prefs.begin("portal", false);
+  prefs.putString("pass", pass);
+  prefs.end();
+  Serial.println(pass.length() > 0 ? "[NVS] Пароль портала установлен."
+                                    : "[NVS] Пароль портала снят.");
+}
+
+// Вызывать первой строкой в каждом обработчике, который должен быть
+// защищён. Возвращает false и сама отправляет HTTP 401 с заголовком
+// WWW-Authenticate, если аутентификация не пройдена — в этом случае
+// обработчик обязан немедленно завершиться (return), ничего больше не
+// отправляя. Если пароль портала не задан — пропускает всех без проверки.
+bool requirePortalAuth() {
+  if (portalPassword.length() == 0) return true;
+  if (configServer.authenticate(PORTAL_AUTH_USER, portalPassword.c_str())) return true;
+  configServer.requestAuthentication();
+  return false;
+}
+
 // ==================== КНОПКА СБРОСА ====================
 
 void setupResetButton() {
@@ -340,7 +385,8 @@ void checkResetButton() {
       resetButtonPressStart = millis();
       resetButtonLastReport = resetButtonPressStart; // отсчёт от момента нажатия
       resetHeldOverrideLed = true;
-      Serial.println("[RESET] Кнопка нажата, удерживайте 30с для сброса WiFi-настроек...");
+      Serial.printf("[RESET] Кнопка нажата, удерживайте %lu с для сброса WiFi-настроек...\n",
+                    (unsigned long)RESET_HOLD_MS / 1000);
     } else {
       uint32_t held = millis() - resetButtonPressStart;
       if (millis() - resetButtonLastReport > 5000) {
@@ -349,7 +395,8 @@ void checkResetButton() {
                       (unsigned long)held / 1000, (unsigned long)RESET_HOLD_MS / 1000);
       }
       if (held >= RESET_HOLD_MS) {
-        Serial.println("[RESET] 30с удержания — сброс WiFi-настроек и перезагрузка!");
+        Serial.printf("[RESET] %lu с удержания — сброс WiFi-настроек и перезагрузка!\n",
+                      (unsigned long)RESET_HOLD_MS / 1000);
         clearWifiCredentials();
         delay(200);
         ESP.restart();
@@ -412,6 +459,13 @@ String buildWifiSetupHtml() {
                             : "Пустое поле = оставить текущий сохранённый пароль. Поддерживаются "
                               "PEAP/MSCHAPv2 без CA-сертификата; если сеть требует EAP-TLS или проверку "
                               "сертификата сервера — эта схема не подойдёт.";
+  String portalPassLabel = en ? "Portal password (optional)" : "Пароль портала (необязательно)";
+  String portalPassHint2 = en ? "Protects this web interface with a login prompt (login: admin). Leave "
+                                "blank to leave the portal unprotected — you can always set this later "
+                                "from the dashboard."
+                              : "Защищает этот веб-интерфейс запросом логина/пароля (логин: admin). "
+                                "Оставьте пустым, чтобы не защищать портал — это всегда можно будет "
+                                "настроить позже на дашборде.";
 
   String html;
   html += "<!DOCTYPE html><html lang=\"" + uiLanguage + "\"><head><meta charset=\"utf-8\">"
@@ -508,11 +562,18 @@ String buildWifiSetupHtml() {
           "<input type=\"password\" name=\"eappass\">"
           "<div class=\"hint\">" + entPassHint + "</div>"
           "</div>"
+          "</div>"
 
+          "<div class=\"card\">"
+          "<label style=\"margin-top:0\">" + portalPassLabel + "</label>"
+          "<input type=\"password\" name=\"portalpass\">"
+          "<div class=\"hint\">" + portalPassHint2 + "</div>"
+          "</div>"
+
+          "<div class=\"card\">"
           "<button type=\"submit\">" + saveBtn + "</button>"
           "</div>"
           "</form>"
-          "</div>"
 
           "<script>"
           "function toggleNetType(){"
@@ -547,7 +608,7 @@ String buildWifiSetupHtml() {
           "}).catch(function(){ btn.disabled = false; btn.textContent = oldTxt; });"
           "}"
           "</script>"
-          "</body></html>";
+          "</div></body></html>";
   return html;
 }
 
@@ -592,6 +653,7 @@ String jsonEscape(const String &s) {
 }
 
 void handleApiStatus() {
+  if (!requirePortalAuth()) return;
   String printerState;
   if (!printerReady) printerState = "disconnected";
   else if (printerHasIssue) printerState = "issue";
@@ -664,6 +726,7 @@ h1{font-size:1.35rem;font-weight:600;margin-bottom:4px}
 .b-gray{background:#334155;color:#cbd5e1}
 .btn{padding:10px 16px;border:none;border-radius:8px;font-size:.9rem;font-weight:600;cursor:pointer;width:100%;margin-top:12px}
 .btn-danger{background:#991b1b;color:#fca5a5}.btn-danger:hover{background:#7f1d1d}
+.btn-primary{background:#3b82f6;color:#fff}.btn-primary:hover{background:#2563eb}
 .btn-lang{background:#991b1b;color:#fff;padding:8px 16px;border:none;border-radius:8px;
           font-size:.85rem;font-weight:600;cursor:pointer;white-space:nowrap}
 .btn-lang:hover{background:#7f1d1d}
@@ -722,6 +785,14 @@ ol b{color:#e2e8f0}
       <form action="/reset-wifi" method="POST" onsubmit="return confirm(T[LANG].confirmReset);">
         <button class="btn btn-danger" type="submit" data-i18n="resetWifi">-</button>
       </form>
+      <form action="/set-portal-pass" method="POST" style="margin-top:14px;padding-top:14px;border-top:1px solid #293548">
+        <span class="k" data-i18n="portalPass" style="display:block;margin-bottom:6px">-</span>
+        <input type="password" name="portalpass" placeholder="••••••••"
+               style="width:100%;padding:9px 11px;background:#0f172a;border:1px solid #475569;
+                      border-radius:8px;color:#e2e8f0;font-size:.9rem;box-sizing:border-box">
+        <div class="raw" style="margin-top:6px" data-i18n="portalPassHint">-</div>
+        <button class="btn btn-primary" type="submit" data-i18n="portalPassBtn">-</button>
+      </form>
     </div>
   </div>
 
@@ -764,6 +835,9 @@ var T = {
     freeMem: '\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c',
     resetWifi: '\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c WiFi-\u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438',
     confirmReset: '\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 WiFi-\u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u043b\u0430\u0442\u0443?',
+    portalPass: '\u041f\u0430\u0440\u043e\u043b\u044c \u043f\u043e\u0440\u0442\u0430\u043b\u0430',
+    portalPassHint: '\u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043f\u0443\u0441\u0442\u044b\u043c \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0435, \u0447\u0442\u043e\u0431\u044b \u0441\u043d\u044f\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443. \u041f\u043e\u0441\u043b\u0435 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u0441\u043f\u0440\u043e\u0441\u0438\u0442 \u043b\u043e\u0433\u0438\u043d/\u043f\u0430\u0440\u043e\u043b\u044c \u043f\u0440\u0438 \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u043c \u0437\u0430\u0445\u043e\u0434\u0435 \u043d\u0430 \u043f\u043e\u0440\u0442\u0430\u043b (\u043b\u043e\u0433\u0438\u043d: admin).',
+    portalPassBtn: '\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c',
     setupTitle: '\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430 \u043d\u0430 \u043a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440\u0435',
     setupWin: '<li>\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0435 \u043e\u0444\u0438\u0446\u0438\u0430\u043b\u044c\u043d\u044b\u0439 \u0434\u0440\u0430\u0439\u0432\u0435\u0440 <b><span class="pmdl">\u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430</span></b></li><li>\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u2192 Bluetooth \u0438 \u0434\u0440\u0443\u0433\u0438\u0435 \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430 \u2192 \u041f\u0440\u0438\u043d\u0442\u0435\u0440\u044b \u0438 \u0441\u043a\u0430\u043d\u0435\u0440\u044b \u2192 <b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u043e</b></li><li>\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab<b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432\u0440\u0443\u0447\u043d\u0443\u044e</b>\u00bb \u2192 \u00ab<b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0438\u043d\u0442\u0435\u0440 \u043f\u043e TCP/IP-\u0430\u0434\u0440\u0435\u0441\u0443 \u0438\u043b\u0438 \u0438\u043c\u0435\u043d\u0438 \u0443\u0437\u043b\u0430</b>\u00bb</li><li>\u0422\u0438\u043f \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430 \u2014 <b>TCP/IP-\u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u043e</b>, \u0438\u043c\u044f \u0443\u0437\u043b\u0430/IP-\u0430\u0434\u0440\u0435\u0441 \u2014 <b><span class="ipv">\u2014</span></b></li><li>\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u2014 \u043b\u0438\u0431\u043e <b>Raw</b> (\u043d\u043e\u043c\u0435\u0440 \u043f\u043e\u0440\u0442\u0430 <b>9100</b>), \u043b\u0438\u0431\u043e <b>LPR</b> (\u0438\u043c\u044f \u043e\u0447\u0435\u0440\u0435\u0434\u0438 \u2014 \u043b\u044e\u0431\u043e\u0435, \u043f\u043e\u0440\u0442 515)</li><li>\u0415\u0441\u043b\u0438 Windows \u043d\u0435 \u0434\u0430\u0451\u0442 \u0432\u044b\u0431\u0440\u0430\u0442\u044c LPR \u043d\u0430\u043f\u0440\u044f\u043c\u0443\u044e \u2014 \u0434\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u00ab\u041e\u0441\u043e\u0431\u044b\u0439\u00bb, \u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b <b>LPR</b></li><li><b>\u0421\u043d\u0438\u043c\u0438\u0442\u0435 \u0433\u0430\u043b\u043e\u0447\u043a\u0443 \u00abSNMP\u00bb</b> \u2014 \u043f\u0440\u0438\u043d\u0442\u0435\u0440 \u0435\u0451 \u043d\u0435 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442</li><li>\u0412 \u043a\u0430\u0447\u0435\u0441\u0442\u0432\u0435 \u0434\u0440\u0430\u0439\u0432\u0435\u0440\u0430 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 <b><span class="pmdl">\u044d\u0442\u043e\u0442 \u043f\u0440\u0438\u043d\u0442\u0435\u0440</span></b></li>',
     setupMac: '<li>\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0435 \u043e\u0444\u0438\u0446\u0438\u0430\u043b\u044c\u043d\u044b\u0439 \u0434\u0440\u0430\u0439\u0432\u0435\u0440 <span class="pmdl">\u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430</span></li><li>\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u2192 \u041f\u0440\u0438\u043d\u0442\u0435\u0440\u044b \u0438 \u0441\u043a\u0430\u043d\u0435\u0440\u044b \u2192 <b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0438\u043d\u0442\u0435\u0440</b></li><li>\u0412\u043a\u043b\u0430\u0434\u043a\u0430 <b>IP</b></li><li>\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u2014 <b>HP Jetdirect - Socket</b> (Raw, 9100) \u043b\u0438\u0431\u043e <b>LPD</b> (LPR, 515)</li><li>\u0410\u0434\u0440\u0435\u0441 \u2014 <b><span class="ipv">\u2014</span></b>; \u0434\u043b\u044f LPD \u0432 \u043f\u043e\u043b\u0435 \u00ab\u041e\u0447\u0435\u0440\u0435\u0434\u044c\u00bb \u0432\u043f\u0438\u0448\u0438\u0442\u0435 \u043b\u044e\u0431\u043e\u0435 \u0438\u043c\u044f</li><li>\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u041f\u041e \u2192 \u043d\u0430\u0439\u0434\u0438\u0442\u0435 \u043c\u043e\u0434\u0435\u043b\u044c <span class="pmdl">\u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430</span></li>',
@@ -782,6 +856,10 @@ var T = {
     ipAddr: 'IP address', signal: 'Signal', system: 'System',
     uptime: 'Uptime', freeMem: 'Free memory', resetWifi: 'Reset WiFi settings',
     confirmReset: 'Reset saved WiFi settings and reboot the board?',
+    portalPass: 'Portal password',
+    portalPassHint: 'Leave blank and save to remove protection. After setting it, the browser will '
+                    + 'ask for a login/password the next time you open the portal (login: admin).',
+    portalPassBtn: 'Save password',
     setupTitle: 'Adding the printer on a computer',
     setupWin: '<li>First install the official driver for <b><span class="pmdl">this printer</span></b></li><li>Settings &rarr; Bluetooth &amp; devices &rarr; Printers &amp; scanners &rarr; <b>Add device</b></li><li>Click \u201c<b>Add manually</b>\u201d &rarr; \u201c<b>Add a printer using a TCP/IP address or hostname</b>\u201d</li><li>Device type \u2014 <b>TCP/IP Device</b>, hostname/IP \u2014 <b><span class="ipv">\u2014</span></b></li><li>Protocol \u2014 either <b>Raw</b> (port <b>9100</b>) or <b>LPR</b> (any queue name, port 515)</li><li>If Windows won\u2019t let you pick LPR directly \u2014 add it via \u201cSpecial\u201d, protocol <b>LPR</b></li><li><b>Make sure \u201cSNMP Status Enabled\u201d is unchecked</b> \u2014 the printer doesn\u2019t support it</li><li>For the driver, pick the already-installed <b><span class="pmdl">this printer</span></b></li>',
     setupMac: '<li>First install the official driver for <span class="pmdl">this printer</span></li><li>System Settings &rarr; Printers &amp; Scanners &rarr; <b>Add Printer</b></li><li>Switch to the <b>IP</b> tab</li><li>Protocol \u2014 <b>HP Jetdirect - Socket</b> (Raw, 9100) or <b>LPD</b> (LPR, 515)</li><li>Address \u2014 <b><span class="ipv">\u2014</span></b>; for LPD, type any name into the \u201cQueue\u201d field</li><li>Under Use, pick <b>Select Software</b> &rarr; find <span class="pmdl">this printer</span></li>',
@@ -866,6 +944,7 @@ setInterval(update, 2000);
 }
 
 void handleConfigRoot() {
+  if (!requirePortalAuth()) return;
   if (WiFi.status() == WL_CONNECTED) {
     configServer.send(200, "text/html; charset=utf-8", buildDashboardHtml());
     return;
@@ -879,6 +958,7 @@ void handleConfigRoot() {
 // пользователем, пока плата и так просто ждёт ввода в форме, а не
 // занята приёмом задания печати.
 void handleWifiScanApi() {
+  if (!requirePortalAuth()) return;
   int n = WiFi.scanNetworks();
   String j = "[";
   for (int i = 0; i < n; i++) {
@@ -893,6 +973,7 @@ void handleWifiScanApi() {
 }
 
 void handleConfigSave() {
+  if (!requirePortalAuth()) return;
   String ssid = configServer.arg("ssid");
   String pass = configServer.arg("pass");
   // ВАЖНО: поле "enterprise" — скрытый <input type="hidden">, которым
@@ -908,11 +989,20 @@ void handleConfigSave() {
   // А вот "open" — настоящий чекбокс, при снятой галочке браузер вообще
   // не включает его в отправку, так что hasArg() тут работает корректно.
   bool openNetwork = configServer.hasArg("open");
+  String portalPass = configServer.arg("portalpass");
   bool en = (uiLanguage == "en");
 
   if (ssid.length() == 0) {
     configServer.send(400, "text/plain; charset=utf-8", en ? "SSID cannot be empty" : "SSID не может быть пустым");
     return;
+  }
+
+  // Пароль портала на этой же странице — необязательное поле: заполнили
+  // при первой настройке — задаём его тут же, оставили пустым — портал
+  // остаётся как был (не защищённым, если ещё не защищали, либо со
+  // старым паролем, если защита уже когда-то была настроена с дашборда).
+  if (portalPass.length() > 0) {
+    savePortalPassword(portalPass);
   }
 
   // Пустое поле означает "оставить как было сохранено" — так не нужно
@@ -959,6 +1049,7 @@ void handleConfigSave() {
 // Позволяет сбросить сохранённые WiFi-настройки прямо со статус-страницы
 // в браузере, без необходимости физически держать кнопку 30 секунд.
 void handleResetWifiRequest() {
+  if (!requirePortalAuth()) return;
   bool en = (uiLanguage == "en");
   String msg = en ? "<h3>WiFi settings reset. Rebooting...</h3>"
                    : "<h3>WiFi-настройки сброшены. Перезагрузка...</h3>";
@@ -979,6 +1070,7 @@ void handleResetWifiRequest() {
 // NVS и сразу редиректим обратно на "/", чтобы страница перерисовалась
 // уже в новом языке.
 void handleSetLanguage() {
+  if (!requirePortalAuth()) return;
   String lang = configServer.arg("lang");
   saveUiLanguage(lang);
   configServer.sendHeader("Location", "/");
@@ -987,6 +1079,18 @@ void handleSetLanguage() {
 
 void handleConfigNotFound() {
   handleConfigRoot();
+}
+
+// Установка/снятие пароля портала. Сама эта операция тоже защищена
+// requirePortalAuth() — если пароль уже задан, для его смены нужно
+// сначала пройти аутентификацию текущим. Если пароль ещё не задан —
+// пускает без проверки (иначе некому было бы задать самый первый пароль).
+void handlePortalPasswordSave() {
+  if (!requirePortalAuth()) return;
+  String newPass = configServer.arg("portalpass");
+  savePortalPassword(newPass);
+  configServer.sendHeader("Location", "/");
+  configServer.send(303);
 }
 
 // Регистрирует маршруты портала и запускает сервер. Вызывается из
@@ -1001,6 +1105,7 @@ void ensurePortalRunning() {
   configServer.on("/save", HTTP_POST, handleConfigSave);
   configServer.on("/reset-wifi", HTTP_POST, handleResetWifiRequest);
   configServer.on("/set-lang", HTTP_POST, handleSetLanguage);
+  configServer.on("/set-portal-pass", HTTP_POST, handlePortalPasswordSave);
   configServer.on("/api/wifi-scan", HTTP_GET, handleWifiScanApi);
   configServer.on("/api/status", HTTP_GET, handleApiStatus);
   configServer.on(UPNP_DESCRIPTION_PATH, HTTP_GET, handleUpnpDescription);
@@ -1874,6 +1979,7 @@ void setup() {
 
   loadWifiCredentials();
   loadUiLanguage(); // читаем сохранённый язык интерфейса (по умолчанию — русский)
+  loadPortalPassword(); // читаем сохранённый пароль портала (по умолчанию — пусто, защита выключена)
   deviceUuid = loadOrCreateDeviceUuid(); // нужен и для UPnP UDN, и ни от чего сетевого не зависит
 
   // ВАЖНО: WiFi.mode() должен быть вызван хотя бы раз, прежде чем
