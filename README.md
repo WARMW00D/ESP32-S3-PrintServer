@@ -181,4 +181,4 @@ support, and the optional OLED status display. 🤖
 
 ## License
 
-MIT (or your license of choice — update this section before publishing).
+MIT 
