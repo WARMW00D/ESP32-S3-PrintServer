@@ -967,15 +967,15 @@ ol b{color:#e2e8f0}
       <div class="row"><span class="k" data-i18n="ipAddr">-</span><span class="v" id="w-ip">—</span></div>
       <div class="row"><span class="k">MAC</span><span class="v" id="w-mac">—</span></div>
       <div class="row"><span class="k" data-i18n="signal">-</span><span class="v" id="w-rssi">—</span></div>
+      <form action="/reset-wifi" method="POST" onsubmit="return confirm(T[LANG].confirmReset);">
+        <button class="btn btn-danger" type="submit" data-i18n="resetWifi">-</button>
+      </form>
     </div>
 
     <div class="card">
       <h2 data-i18n="system">-</h2>
       <div class="row"><span class="k" data-i18n="uptime">-</span><span class="v" id="s-up">—</span></div>
       <div class="row"><span class="k" data-i18n="freeMem">-</span><span class="v" id="s-heap">—</span></div>
-      <form action="/reset-wifi" method="POST" onsubmit="return confirm(T[LANG].confirmReset);">
-        <button class="btn btn-danger" type="submit" data-i18n="resetWifi">-</button>
-      </form>
       <form action="/set-portal-pass" method="POST" style="margin-top:14px;padding-top:14px;border-top:1px solid #293548">
         <span class="k" data-i18n="portalPass" style="display:block;margin-bottom:6px">-</span>
         <input type="password" name="portalpass" placeholder="••••••••"
