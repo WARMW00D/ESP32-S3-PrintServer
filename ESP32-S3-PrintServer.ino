@@ -1,5 +1,5 @@
 /*
-  P2015_PrintServer.ino
+  ESP32-S3-PrintServer.ino
   ----------------------------------------------------------------
   WiFi -> USB Host мост для сетевого принтера (протестировано на HP-подобных
   USB-принтерах класса 0x07, обобщённое устройство "ESP32 Print Server") на плате ESP32-S3 N16R8 с двумя USB-C.
@@ -72,6 +72,30 @@
 #include <Adafruit_NeoPixel.h>
 #include "esp_eap_client.h" // WPA2-Enterprise (PEAP/TTLS+MSCHAPv2) — актуальный заголовок для IDF 5.1+;
                             // старый esp_wpa2.h убран из SDK и даёт ошибку компиляции "Use esp_eap_client.h instead"
+
+// ==================== OLED-ДИСПЛЕЙ (опционально) ====================
+// Поставьте 0, если дисплей физически не подключён — тогда весь связанный
+// код и обе библиотеки ниже не понадобятся вообще (можно даже не
+// устанавливать Adafruit_SSD1306/Adafruit_GFX через Library Manager).
+#define ENABLE_OLED_DISPLAY 1
+
+#if ENABLE_OLED_DISPLAY
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+// Выбор начертания шрифта на OLED: 1 — жирный, 0 — обычный. Оба файла
+// шрифтов из одного комплекта Adafruit_GFX, просто разной насыщенности.
+#define OLED_FONT_BOLD 0
+
+#if OLED_FONT_BOLD
+#include <Fonts/FreeSansBold9pt7b.h>
+#define OLED_FONT FreeSansBold9pt7b
+#else
+#include <Fonts/FreeSans9pt7b.h>
+#define OLED_FONT FreeSans9pt7b
+#endif
+#endif
+
 #include "EspUsbHost.h"
 #include "LedTypes.h"
 
@@ -118,6 +142,20 @@ const int RGB_LED_COUNT = 1;
 // своей же константы с тем же именем даёт ошибку переопределения —
 // используем готовую из ядра.
 
+#if ENABLE_OLED_DISPLAY
+// 0.91" I2C OLED на SSD1306, разрешение 128x32 — самый распространённый
+// вариант именно у дисплеев этого размера (0.96" обычно уже 128x64).
+// Пины SDA/SCL — под конкретную плату может понадобиться поменять,
+// GPIO8/9 просто свободны и не пересекаются с RESET_BUTTON_PIN (0) и
+// RGB_LED_PIN (48) из этого проекта.
+const int OLED_SDA_PIN = 8;
+const int OLED_SCL_PIN = 9;
+const int OLED_SCREEN_WIDTH = 128;
+const int OLED_SCREEN_HEIGHT = 32;
+const int OLED_RESET_PIN = -1;      // большинство модулей 0.91" не имеют отдельного пина сброса
+const uint8_t OLED_I2C_ADDRESS = 0x3C; // самый частый адрес; на некоторых модулях — 0x3D
+#endif
+
 // ==================== ГЛОБАЛЬНЫЕ ОБЪЕКТЫ ====================
 
 EspUsbHost usb;
@@ -126,6 +164,11 @@ WiFiServer lprServer(LPR_PORT);
 WebServer configServer(80); // теперь работает ПОСТОЯННО — и AP-настройка, и статус-портал
 Preferences prefs;
 Adafruit_NeoPixel pixel(RGB_LED_COUNT, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
+
+#if ENABLE_OLED_DISPLAY
+Adafruit_SSD1306 oled(OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT, &Wire, OLED_RESET_PIN);
+bool oledReady = false;
+#endif
 
 // ---- SSDP / UPnP ----
 WiFiUDP ssdpUdp;
@@ -244,6 +287,132 @@ void updateLed() {
   pixel.setPixelColor(0, finalColor);
   pixel.show();
 }
+
+#if ENABLE_OLED_DISPLAY
+// Инициализация дисплея — вызывается один раз из setup(). Если дисплей
+// физически не подключён (или не тот I2C-адрес), begin() вернёт false —
+// в этом случае просто оставляем oledReady=false и дальше по коду
+// молча пропускаем все попытки что-то на него вывести, без зависаний.
+void initOled() {
+  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+  oledReady = oled.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
+  if (!oledReady) {
+    Serial.println("[OLED] Дисплей не найден на шине I2C — пропускаем (проверьте подключение/адрес).");
+    return;
+  }
+  // ВАЖНО: без явного setTextColor() ничего не будет видно на экране,
+  // даже если begin() отработал успешно и весь остальной код рисования
+  // верен — Adafruit_GFX по умолчанию не гарантирует, что цвет текста
+  // отличается от цвета фона (в некоторых версиях библиотеки оба
+  // изначально совпадают), и текст рисуется буквально тем же цветом,
+  // что и фон, то есть невидимым. Для монохромного SSD1306 есть только
+  // один "цвет" — SSD1306_WHITE (включенный пиксель).
+  oled.setTextColor(SSD1306_WHITE);
+  // На всякий случай явно снимаем "приглушённый" режим — публичный API
+  // библиотеки не даёт выставить контраст произвольным числом (нужная
+  // команда 0x81 спрятана как защищённый метод), но dim(false)
+  // принудительно возвращает контраст к тому "полному" значению,
+  // которое сама же begin() подобрала для текущего режима питания.
+  oled.dim(false);
+  // Переключаемся на пропорциональный шрифт из комплекта библиотеки —
+  // встроенный "классический" шрифт слишком грубый (только целые
+  // множители x1/x2/x3... одной и той же сетки 6px/символ), из-за чего
+  // для длинных IP-адресов x2 просто не влезает по ширине, а x1
+  // выглядит очень мелко. У этого шрифта цифры уже, и высота не
+  // привязана к шагам по 8px — getTextBounds() ниже сам всё измерит
+  // уже для него.
+  oled.setFont(&OLED_FONT);
+  oled.clearDisplay();
+  oled.display();
+  Serial.println("[OLED] Дисплей найден и готов.");
+  showOledSplash();
+}
+
+// Заставка на старте — показывается сразу после успешной инициализации,
+// до того как появится реальный IP-адрес (WiFi ещё только подключается,
+// либо плата поднимает собственную точку доступа). Использует ту же
+// логику единой строки, что и updateOledIp().
+void showOledSplash() {
+  if (!oledReady) return;
+  oled.clearDisplay();
+  drawOledIpLineAutoSize("PrintServer");
+  oled.display();
+}
+
+// Отображает текущий IP-адрес, подобрав максимально крупный размер
+// шрифта, который ещё помещается по ширине экрана — короткие адреса
+// (например "10.0.0.5") показываются одной строкой покрупнее, длинные
+// разбиваются на две строки, чтобы использовать всю высоту 32 пикселя.
+// Стандартный встроенный шрифт Adafruit_GFX — 6x8 пикселей на символ
+// при размере 1 (это фиксированная метрика самой библиотеки).
+void drawOledIpLine(const String &text, int size, int y) {
+  oled.setTextSize(size);
+  oled.setTextWrap(false); // иначе getTextBounds()/print() сами перенесут строку, если она не влезает
+  int16_t x1, y1;
+  uint16_t w, h;
+  oled.getTextBounds(text.c_str(), 0, 0, &x1, &y1, &w, &h);
+  int x = (OLED_SCREEN_WIDTH - (int)w) / 2 - x1;
+  if (x < 0) x = 0;
+  oled.setCursor(x, y);
+  oled.print(text);
+}
+
+// Общая логика для сплэша и для показа IP: строго одна строка,
+// подбираем наибольший размер шрифта, который одновременно проходит
+// и по ширине экрана (строка не вылезет за края), и по высоте (символы
+// не обрежутся сверху/снизу) — итоговый размер это минимум из двух
+// ограничений. Реальные ширину/высоту строки при каждом размере узнаём
+// через getTextBounds() самой библиотеки, а не считаем вручную —
+// точнее и не завязано на то, какой именно шрифт сейчас активен. Сама
+// отрисовка на экран (clearDisplay/display) — на совести вызывающего
+// кода, эта функция только считает размер и рисует текст в буфер.
+void drawOledIpLineAutoSize(const String &text) {
+  const int marginPx = 0; // отступ по краям — 0, у видимой области дисплея и так есть свой запас
+  const int maxWidthPx = OLED_SCREEN_WIDTH - marginPx;
+  const int maxHeightPx = OLED_SCREEN_HEIGHT - marginPx;
+
+  oled.setTextWrap(false); // иначе getTextBounds() для не влезающей по ширине
+                           // строки вернёт уже "перенесённые" (заниженные) размеры
+  int16_t x1, y1;
+  uint16_t w, h;
+
+  int sizeByWidth = 1;
+  for (int s = 2; s <= 10; s++) {
+    oled.setTextSize(s);
+    oled.getTextBounds(text.c_str(), 0, 0, &x1, &y1, &w, &h);
+    if ((int)w > maxWidthPx) break;
+    sizeByWidth = s;
+  }
+  int sizeByHeight = 1;
+  for (int s = 2; s <= 10; s++) {
+    oled.setTextSize(s);
+    oled.getTextBounds(text.c_str(), 0, 0, &x1, &y1, &w, &h);
+    if ((int)h > maxHeightPx) break;
+    sizeByHeight = s;
+  }
+  int size = min(sizeByWidth, sizeByHeight);
+  if (size < 1) size = 1;
+
+  oled.setTextSize(size);
+  oled.getTextBounds(text.c_str(), 0, 0, &x1, &y1, &w, &h);
+  int y = (OLED_SCREEN_HEIGHT - (int)h) / 2 - y1;
+  drawOledIpLine(text, size, y);
+}
+
+void updateOledIp(const String &ip) {
+  if (!oledReady) return;
+
+  // Перерисовываем, только когда IP реально изменился — не дёргаем
+  // шину I2C впустую на каждой итерации loop().
+  static String lastShown = "\x01"; // заведомо не равно ни одному реальному IP
+  if (ip == lastShown) return;
+  lastShown = ip;
+
+  oled.clearDisplay();
+  drawOledIpLineAutoSize(ip);
+  oled.display();
+}
+#endif
 
 // Пересчитывает "фоновое" состояние индикации по факту WiFi/принтера.
 // Используется после подключения WiFi, после (от)ключения принтера,
@@ -1140,6 +1309,9 @@ void startConfigPortal() {
     checkResetButton(); // также обновляет LED каждую итерацию
     checkPrinterStatusPeriodic(); // статус принтера опрашивается и без домашнего WiFi
     servePrintClients();          // печать работает и через собственную точку доступа 192.168.4.1
+#if ENABLE_OLED_DISPLAY
+    updateOledIp(WiFi.softAPIP().toString());
+#endif
     delay(2);
   }
 }
@@ -1502,7 +1674,7 @@ bool printerCanAcceptJob() {
 // ==================== PJL: опрос статуса принтера ====================
 //
 // ВНИМАНИЕ: формат ответа @PJL INFO STATUS проверен вживую на конкретно
-// вашем HP P2015 — реальные примеры: "CODE=0 DISPLAY=\"Non HP supplyin
+// используемом при разработке PJL-принтере — реальные примеры: "CODE=0 DISPLAY=\"Non HP supplyin
 // use\" ONLINE=TRUE" (норма), "CODE=41900 DISPLAY=\"Load paper\"",
 // "CODE=40021 DISPLAY=\"Door open\"", "CODE=10023 DISPLAY=\"Printingdocument\"".
 // Решение "можно ли принять новое задание" опирается ИСКЛЮЧИТЕЛЬНО на
@@ -1966,6 +2138,10 @@ void setup() {
   pixel.setBrightness(RGB_BRIGHTNESS);
   pixel.show(); // выключен по умолчанию
 
+#if ENABLE_OLED_DISPLAY
+  initOled();
+#endif
+
   setupResetButton();
 
   usb.onDeviceConnected(onUsbDeviceConnected);
@@ -2059,6 +2235,10 @@ void loop() {
   checkPrinterStatusPeriodic(); // раз в PRINTER_STATUS_INTERVAL_MS опрашивает @PJL INFO STATUS
 
   servePrintClients();
+
+#if ENABLE_OLED_DISPLAY
+  updateOledIp(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString());
+#endif
 
   delay(5);
 }

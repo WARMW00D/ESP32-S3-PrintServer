@@ -11,9 +11,9 @@ and print servers use. Any computer on the network (Windows, macOS, Linux)
 can add it as a normal TCP/IP printer, install the manufacturer's driver,
 and print to it wirelessly.
 
-Built and tested against an **HP LaserJet P2015**, but should work with any
-printer exposing a standard bidirectional USB Printer Class (07/01)
-interface.
+Built and tested against, for example, an **HP LaserJet P2015**, but should
+work with any printer exposing a standard bidirectional USB Printer Class
+(07/01) interface.
 
 ## Features
 
@@ -31,9 +31,29 @@ interface.
   itself: printer state, USB connection details, WiFi info, free memory,
   and step-by-step printer-setup instructions for Windows and macOS with
   the live IP/model substituted in automatically.
+- **WiFi setup with network scanning** — the setup page can scan for nearby
+  networks and list them (with signal strength and lock icon for secured
+  ones) instead of requiring the SSID to be typed by hand; manual entry is
+  still available for hidden networks.
+- **WPA2-Enterprise (802.1X) support** — in addition to regular WPA2-PSK
+  (or open) networks, the setup page can also join PEAP/TTLS+MSCHAPv2
+  WPA2-Enterprise networks (e.g. `eduroam` or a corporate WiFi with a
+  RADIUS server), using an Identity/Username/Password prompt instead of
+  a plain network password.
 - **Bilingual UI (RU/EN)** — a single button toggles the whole portal
   between Russian and English; the choice is saved to flash (NVS) and
   survives reboots.
+- **Optional portal password** — the whole web interface (dashboard, setup
+  page, and every API route) can be protected with an HTTP Basic Auth
+  password (login `admin`), settable from either the setup page or the
+  dashboard. Left blank, the portal stays open — this is opt-in, not
+  required.
+- **Optional 0.91" I2C OLED status display** — shows a boot splash and then
+  the board's current IP address (home-network IP once connected, or the
+  access point's `192.168.4.1` while it isn't), auto-sized to make the best
+  use of the small screen via `Adafruit_GFX`'s own text-measurement API.
+  Fully optional and gated behind a single `#define` — leave it disabled
+  and neither the extra libraries nor the wiring are needed at all.
 - **Reliable large-job transfer** — print data is sent through the USB
   Host library's asynchronous write queue with a generous, configurable
   timeout, rather than a single fixed-length blocking write. This avoids
@@ -43,16 +63,12 @@ interface.
   bytes on the wire.
 - **mDNS + SSDP/UPnP discovery** — the board announces itself on the
   network so it shows up automatically where supported.
-- **WiFi setup portal** — on first boot (or after a settings reset) the
-  board starts its own access point with a captive setup page; no
-  hard-coded credentials in the source. **Printing works immediately
-  through this access point too** (`192.168.4.1`), even before — or
-  without ever — configuring a home network.
-- **WPA2-Enterprise (802.1X) support** — in addition to regular WPA2-PSK
-  networks, the setup page can also join PEAP/TTLS+MSCHAPv2
-  WPA2-Enterprise networks (e.g. `eduroam` or a corporate WiFi with a
-  RADIUS server), using an Identity/Username/Password prompt instead of
-  a plain network password.
+- **WiFi setup portal with a real fallback** — on first boot (or after a
+  settings reset) the board starts its own access point with a captive
+  setup page; no hard-coded credentials in the source. **Printing works
+  immediately through this access point too** (`192.168.4.1`), even before
+  — or entirely without — configuring a home network, and it keeps working
+  as a fallback any time the configured network becomes unreachable.
 
 ## Hardware
 
@@ -75,6 +91,10 @@ interface.
 
   Check your specific board's silkscreen/schematic for the exact pad
   labels and location — naming varies slightly between vendors.
+- **Optional: a 0.91" I2C OLED display** (SSD1306, 128×32) if you want the
+  IP address shown on a screen rather than only checked via the web
+  dashboard. Four wires (VCC/GND/SDA/SCL) to any free GPIO pins that don't
+  conflict with the ones already used by the reset button and the RGB LED.
 
 ## Known-good / known-tricky printers
 
@@ -119,6 +139,9 @@ Board settings used during development:
   wrapper around ESP-IDF's native `usb_host.h` USB Host stack.
 - Standard ESP32 Arduino core libraries: `WiFi`, `WiFiUdp`, `ESPmDNS`,
   `Preferences`, `WebServer`.
+- Only if the optional OLED display is enabled (`ENABLE_OLED_DISPLAY 1`):
+  `Adafruit_SSD1306` and `Adafruit_GFX` (both installable via the Arduino
+  Library Manager). With the display disabled, neither is required.
 
 ## Quick start
 
@@ -133,8 +156,10 @@ Board settings used during development:
    reach your configured network, so it always falls back to a usable
    printer instead of going silent.
 4. To also make it reachable on your regular home network, open
-   `http://192.168.4.1` while connected to that access point and enter
-   your WiFi credentials.
+   `http://192.168.4.1` while connected to that access point, either scan
+   for and pick your network or type its SSID manually, and enter its
+   password (or Identity/Username/Password for a WPA2-Enterprise network).
+   You can optionally set a portal password on the very same page.
 5. Once connected to your home network, open the board's IP address in a
    browser for the live dashboard, or visit
    `http://ESP32-PrintServer.local` if your OS supports mDNS.
@@ -151,7 +176,8 @@ Board settings used during development:
 This project was built collaboratively with **[Claude](https://claude.com)**
 (Anthropic) — from the initial hardware bring-up and USB protocol
 debugging, through diagnosing a genuinely nasty upstream Arduino-ESP32
-core regression, to the web dashboard and bilingual UI. 🤖
+core regression, to the web dashboard, bilingual UI, WPA2-Enterprise
+support, and the optional OLED status display. 🤖
 
 ## License
 
