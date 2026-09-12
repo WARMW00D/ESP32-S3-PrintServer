@@ -15,6 +15,8 @@ Built and tested against, for example, an **HP LaserJet P2015**, but should
 work with any printer exposing a standard bidirectional USB Printer Class
 (07/01) interface.
 
+![Portal](Portal.png)
+
 ## Features
 
 - **USB Host bridge** — ESP32-S3's native USB-OTG port drives the printer
