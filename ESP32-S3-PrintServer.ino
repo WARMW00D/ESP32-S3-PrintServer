@@ -168,6 +168,18 @@ Adafruit_NeoPixel pixel(RGB_LED_COUNT, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
 #if ENABLE_OLED_DISPLAY
 Adafruit_SSD1306 oled(OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT, &Wire, OLED_RESET_PIN);
 bool oledReady = false;
+
+// Защита от выгорания: статичный текст (IP-адрес) на одном и том же
+// месте экрана долгие часы/дни способен "выжечь" пиксели OLED-матрицы.
+// Через OLED_BURN_IN_PROTECT_MS после включения экран гасится и больше
+// не перерисовывается до следующей перезагрузки платы. Гасить именно
+// через clearDisplay()/display() достаточно — в OLED, в отличие от LCD
+// с подсветкой, чёрный пиксель физически не потребляет ток и не
+// "горит", так что отдельная команда аппаратного отключения матрицы
+// не нужна.
+const unsigned long OLED_BURN_IN_PROTECT_MS = 30UL * 60UL * 1000UL; // 30 минут
+unsigned long oledOnSinceMs = 0;
+bool oledBurnInProtected = false;
 #endif
 
 // ---- SSDP / UPnP ----
@@ -325,6 +337,7 @@ void initOled() {
   oled.clearDisplay();
   oled.display();
   Serial.println("[OLED] Дисплей найден и готов.");
+  oledOnSinceMs = millis();
   showOledSplash();
 }
 
@@ -401,6 +414,15 @@ void drawOledIpLineAutoSize(const String &text) {
 
 void updateOledIp(const String &ip) {
   if (!oledReady) return;
+  if (oledBurnInProtected) return; // экран уже погашен насовсем до перезагрузки
+
+  if (millis() - oledOnSinceMs >= OLED_BURN_IN_PROTECT_MS) {
+    oledBurnInProtected = true;
+    oled.clearDisplay();
+    oled.display();
+    Serial.println("[OLED] Прошло 30 минут — гасим экран (защита от выгорания).");
+    return;
+  }
 
   // Перерисовываем, только когда IP реально изменился — не дёргаем
   // шину I2C впустую на каждой итерации loop().
