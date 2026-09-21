@@ -98,6 +98,9 @@ work with any printer exposing a standard bidirectional USB Printer Class
   dashboard. Four wires (VCC/GND/SDA/SCL) to any free GPIO pins that don't
   conflict with the ones already used by the reset button and the RGB LED.
 
+![Device-1](ESP32-S3-PrintServer-device-1.png)
+![Device-2](ESP32-S3-PrintServer-device-2.png)
+
 ## Known-good / known-tricky printers
 
 Any printer with a genuine PCL, PostScript, or similar printer-side
