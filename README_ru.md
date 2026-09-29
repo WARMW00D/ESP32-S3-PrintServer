@@ -1,5 +1,7 @@
 # ESP32-S3-PrintServer
 
+[English version](README.md)
+
 Превратите обычный USB-принтер в WiFi-сетевой принтер с помощью ESP32-S3
 в роли USB-хост-моста — без Raspberry Pi, без выделенного компьютера.
 
