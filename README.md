@@ -1,5 +1,7 @@
 # ESP32-S3-PrintServer
 
+[English version](README.md)
+
 Turn a plain USB printer into a WiFi network printer using an ESP32-S3 as a
 USB Host bridge — no Raspberry Pi, no dedicated PC required.
 
