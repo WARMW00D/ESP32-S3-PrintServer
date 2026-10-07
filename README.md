@@ -213,6 +213,10 @@ debugging, through diagnosing a genuinely nasty upstream Arduino-ESP32
 core regression, to the web dashboard, bilingual UI, WPA2-Enterprise
 support, and the optional OLED status display. 🤖
 
+## Project participation
+
+The IPP/PWG Raster to PCL 5 implementation, 600 dpi and duplex support, diagnostics, host tests and documentation were developed with **[OpenAI ChatGPT / Codex](https://openai.com/chatgpt/)**. WARMW00D provided ESP32-S3 and HP LaserJet P2015d hardware validation and feedback.
+
 ## License
 
 MIT 
