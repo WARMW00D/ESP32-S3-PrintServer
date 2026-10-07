@@ -1,0 +1,36 @@
+{
+  "base_commit": "fd82aa46d2206e01b0cc4116dea4efe35305f90f",
+  "arduino_core": "3.3.10",
+  "fqbn": "esp32:esp32:esp32s3:CDCOnBoot=default,USBMode=default,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi",
+  "libraries": {
+    "EspUsbHost": {
+      "version": "2.10.0",
+      "commit": "cf20760dc65d6d70f5f33434642da49cee0d74e1"
+    },
+    "Adafruit_NeoPixel": {
+      "version": "1.15.5",
+      "commit": "d514fc3beae85dd4c2b19781b93faa47bd6e996f"
+    },
+    "Adafruit_GFX": {
+      "version": "1.12.6",
+      "commit": "ac6d7c3869a693d406f77b9bfcd486b0673169f0"
+    },
+    "Adafruit_SSD1306": {
+      "version": "2.5.17",
+      "commit": "d94f699451d72286357cba7259055ffff2c2940b"
+    },
+    "Adafruit_BusIO": {
+      "version": "1.17.4",
+      "commit": "3b8364267c3ee6e16bad91bc2101aefbd5b5915f"
+    }
+  },
+  "scope": "Experimental IPP / A4 portrait / 600 dpi default (300 supported) / monochrome / simplex or HP P2015d duplex / one copy",
+  "hardware_tested": false,
+  "source_sha256": {
+    "ESP32-S3-PrintServer.ino": "0a4b46bdaeb9af10806189f8d9be0a60066bc60debf428eb44747ba35617ba22",
+    "PwgRaster.h": "a659748925c7ac9da06914b2d4b8c2c9a79c1a31b42b2b1327d7f0645e6c345d",
+    "IppCodec.h": "3483499d81f2b7f561a3fa1e021702bec1bc8f37b2f6843af05989f6c4aee23a",
+    "MobilePrint.h": "ef490cab01c670226a5d7432e7e19a9b0d544272acb9991128f42ebb0f438b35"
+  },
+  "version": "V0.1.6"
+}

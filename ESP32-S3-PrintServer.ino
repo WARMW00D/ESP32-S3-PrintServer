@@ -67,6 +67,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <ESPmDNS.h>
+#include "MobilePrint.h"
 #include <Preferences.h>
 #include <WebServer.h>
 #include <Adafruit_NeoPixel.h>
@@ -157,6 +158,18 @@ const uint8_t OLED_I2C_ADDRESS = 0x3C; // самый частый адрес; н
 #endif
 
 // ==================== ГЛОБАЛЬНЫЕ ОБЪЕКТЫ ====================
+
+// One IPP engine; platform callbacks keep USB ownership in the main loop.
+bool mobileWrite(const uint8_t *data, size_t len);
+bool mobileReady();
+bool mobileFlush();
+void mobileActivity(bool active);
+// Explicit declarations also work around Arduino's prototype scanner on the
+// large raw HTML/JavaScript strings below.
+void handleUpnpDescription();
+void checkPrinterStatusPeriodic();
+void servePrintClients();
+mobileprint::Server mobileIpp(mobileWrite, mobileReady, mobileFlush, mobileActivity);
 
 EspUsbHost usb;
 WiFiServer rawServer(RAW_PORT);
@@ -1002,6 +1015,10 @@ ol b{color:#e2e8f0}
     <div class="raw" style="margin-top:12px" data-i18n="setupNote">-</div>
   </div>
 
+  <div class="card" style="margin-top:14px">
+    <h2>Android / Poco · IPP</h2>
+    <ol data-i18n-html="setupAndroid"></ol>
+  </div>
   <div class="foot">ESP32 Print Server</div>
 </div>
 
@@ -1030,6 +1047,7 @@ var T = {
     portalPassHint: '\u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043f\u0443\u0441\u0442\u044b\u043c \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0435, \u0447\u0442\u043e\u0431\u044b \u0441\u043d\u044f\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443. \u041f\u043e\u0441\u043b\u0435 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u0441\u043f\u0440\u043e\u0441\u0438\u0442 \u043b\u043e\u0433\u0438\u043d/\u043f\u0430\u0440\u043e\u043b\u044c \u043f\u0440\u0438 \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u043c \u0437\u0430\u0445\u043e\u0434\u0435 \u043d\u0430 \u043f\u043e\u0440\u0442\u0430\u043b (\u043b\u043e\u0433\u0438\u043d: admin).',
     portalPassBtn: '\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c',
     setupTitle: '\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430 \u043d\u0430 \u043a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440\u0435',
+    setupAndroid: "<li>\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435 \u0442\u0435\u043b\u0435\u0444\u043e\u043d \u043a \u0442\u043e\u0439 \u0436\u0435 Wi-Fi \u0441\u0435\u0442\u0438 \u0438\u043b\u0438 \u0442\u043e\u0447\u043a\u0435 \u0434\u043e\u0441\u0442\u0443\u043f\u0430 ESP32.</li><li>\u0412 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 Android \u043d\u0430\u0439\u0434\u0438\u0442\u0435 \u00ab\u041f\u0435\u0447\u0430\u0442\u044c\u00bb \u0438 \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u0435 \u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442\u043d\u0443\u044e \u0441\u043b\u0443\u0436\u0431\u0443 \u043f\u0435\u0447\u0430\u0442\u0438 \u0438\u043b\u0438 Mopria Print Service.</li><li>\u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442 \u2192 \u041f\u0435\u0447\u0430\u0442\u044c \u2192 HP P2015 ESP32. \u0415\u0441\u043b\u0438 \u043f\u0440\u0438\u043d\u0442\u0435\u0440 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d, \u0434\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0435\u0433\u043e \u043f\u043e IP: <b><span class=\"ipv\">\u2014</span></b>.</li><li>\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 A4, \u0447\u0451\u0440\u043d\u043e-\u0431\u0435\u043b\u0443\u044e \u043f\u0435\u0447\u0430\u0442\u044c, \u043e\u0434\u0438\u043d \u044d\u043a\u0437\u0435\u043c\u043f\u043b\u044f\u0440 \u0438 \u043e\u0434\u043d\u043e\u0441\u0442\u043e\u0440\u043e\u043d\u043d\u044e\u044e \u043f\u0435\u0447\u0430\u0442\u044c. \u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u2014 600 dpi (300 dpi also supported).</li><li>\u042d\u043a\u0441\u043f\u0435\u0440\u0438\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u0430\u044f \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 Android: \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u043d\u0430 \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0435. AirPrint \u0438 Bluetooth \u043f\u043e\u043a\u0430 \u043d\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u044b.</li>",
     setupWin: '<li>\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0435 \u043e\u0444\u0438\u0446\u0438\u0430\u043b\u044c\u043d\u044b\u0439 \u0434\u0440\u0430\u0439\u0432\u0435\u0440 <b><span class="pmdl">\u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430</span></b></li><li>\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u2192 Bluetooth \u0438 \u0434\u0440\u0443\u0433\u0438\u0435 \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430 \u2192 \u041f\u0440\u0438\u043d\u0442\u0435\u0440\u044b \u0438 \u0441\u043a\u0430\u043d\u0435\u0440\u044b \u2192 <b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u043e</b></li><li>\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab<b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432\u0440\u0443\u0447\u043d\u0443\u044e</b>\u00bb \u2192 \u00ab<b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0438\u043d\u0442\u0435\u0440 \u043f\u043e TCP/IP-\u0430\u0434\u0440\u0435\u0441\u0443 \u0438\u043b\u0438 \u0438\u043c\u0435\u043d\u0438 \u0443\u0437\u043b\u0430</b>\u00bb</li><li>\u0422\u0438\u043f \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430 \u2014 <b>TCP/IP-\u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u043e</b>, \u0438\u043c\u044f \u0443\u0437\u043b\u0430/IP-\u0430\u0434\u0440\u0435\u0441 \u2014 <b><span class="ipv">\u2014</span></b></li><li>\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u2014 \u043b\u0438\u0431\u043e <b>Raw</b> (\u043d\u043e\u043c\u0435\u0440 \u043f\u043e\u0440\u0442\u0430 <b>9100</b>), \u043b\u0438\u0431\u043e <b>LPR</b> (\u0438\u043c\u044f \u043e\u0447\u0435\u0440\u0435\u0434\u0438 \u2014 \u043b\u044e\u0431\u043e\u0435, \u043f\u043e\u0440\u0442 515)</li><li>\u0415\u0441\u043b\u0438 Windows \u043d\u0435 \u0434\u0430\u0451\u0442 \u0432\u044b\u0431\u0440\u0430\u0442\u044c LPR \u043d\u0430\u043f\u0440\u044f\u043c\u0443\u044e \u2014 \u0434\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u00ab\u041e\u0441\u043e\u0431\u044b\u0439\u00bb, \u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b <b>LPR</b></li><li><b>\u0421\u043d\u0438\u043c\u0438\u0442\u0435 \u0433\u0430\u043b\u043e\u0447\u043a\u0443 \u00abSNMP\u00bb</b> \u2014 \u043f\u0440\u0438\u043d\u0442\u0435\u0440 \u0435\u0451 \u043d\u0435 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442</li><li>\u0412 \u043a\u0430\u0447\u0435\u0441\u0442\u0432\u0435 \u0434\u0440\u0430\u0439\u0432\u0435\u0440\u0430 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 <b><span class="pmdl">\u044d\u0442\u043e\u0442 \u043f\u0440\u0438\u043d\u0442\u0435\u0440</span></b></li>',
     setupMac: '<li>\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0435 \u043e\u0444\u0438\u0446\u0438\u0430\u043b\u044c\u043d\u044b\u0439 \u0434\u0440\u0430\u0439\u0432\u0435\u0440 <span class="pmdl">\u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430</span></li><li>\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u2192 \u041f\u0440\u0438\u043d\u0442\u0435\u0440\u044b \u0438 \u0441\u043a\u0430\u043d\u0435\u0440\u044b \u2192 <b>\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0438\u043d\u0442\u0435\u0440</b></li><li>\u0412\u043a\u043b\u0430\u0434\u043a\u0430 <b>IP</b></li><li>\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u2014 <b>HP Jetdirect - Socket</b> (Raw, 9100) \u043b\u0438\u0431\u043e <b>LPD</b> (LPR, 515)</li><li>\u0410\u0434\u0440\u0435\u0441 \u2014 <b><span class="ipv">\u2014</span></b>; \u0434\u043b\u044f LPD \u0432 \u043f\u043e\u043b\u0435 \u00ab\u041e\u0447\u0435\u0440\u0435\u0434\u044c\u00bb \u0432\u043f\u0438\u0448\u0438\u0442\u0435 \u043b\u044e\u0431\u043e\u0435 \u0438\u043c\u044f</li><li>\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u041f\u041e \u2192 \u043d\u0430\u0439\u0434\u0438\u0442\u0435 \u043c\u043e\u0434\u0435\u043b\u044c <span class="pmdl">\u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043d\u0442\u0435\u0440\u0430</span></li>',
     setupNote: '\u041e\u0431\u0430 \u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b\u0430 (Raw \u0438 LPR) \u0440\u0430\u0431\u043e\u0442\u0430\u044e\u0442 \u043e\u0434\u043d\u043e\u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u2014 \u0440\u0430\u0437\u043d\u0438\u0446\u044b \u0432 \u043a\u0430\u0447\u0435\u0441\u0442\u0432\u0435 \u043d\u0435\u0442.',
@@ -1052,6 +1070,7 @@ var T = {
                     + 'ask for a login/password the next time you open the portal (login: admin).',
     portalPassBtn: 'Save password',
     setupTitle: 'Adding the printer on a computer',
+    setupAndroid: "<li>Connect the phone to the same Wi-Fi network or the ESP32 access point.</li><li>Search Android settings for Printing and enable the Default Print Service or Mopria Print Service.</li><li>Open a document \u2192 Print \u2192 HP P2015 ESP32. If discovery fails, add the printer by IP: <b><span class=\"ipv\">\u2014</span></b>.</li><li>Choose A4, monochrome, one copy and one-sided printing. Server resolution is 600 dpi (300 dpi also supported).</li><li>Experimental Android support: phone testing required. AirPrint and Bluetooth are not enabled yet.</li>",
     setupWin: '<li>First install the official driver for <b><span class="pmdl">this printer</span></b></li><li>Settings &rarr; Bluetooth &amp; devices &rarr; Printers &amp; scanners &rarr; <b>Add device</b></li><li>Click \u201c<b>Add manually</b>\u201d &rarr; \u201c<b>Add a printer using a TCP/IP address or hostname</b>\u201d</li><li>Device type \u2014 <b>TCP/IP Device</b>, hostname/IP \u2014 <b><span class="ipv">\u2014</span></b></li><li>Protocol \u2014 either <b>Raw</b> (port <b>9100</b>) or <b>LPR</b> (any queue name, port 515)</li><li>If Windows won\u2019t let you pick LPR directly \u2014 add it via \u201cSpecial\u201d, protocol <b>LPR</b></li><li><b>Make sure \u201cSNMP Status Enabled\u201d is unchecked</b> \u2014 the printer doesn\u2019t support it</li><li>For the driver, pick the already-installed <b><span class="pmdl">this printer</span></b></li>',
     setupMac: '<li>First install the official driver for <span class="pmdl">this printer</span></li><li>System Settings &rarr; Printers &amp; Scanners &rarr; <b>Add Printer</b></li><li>Switch to the <b>IP</b> tab</li><li>Protocol \u2014 <b>HP Jetdirect - Socket</b> (Raw, 9100) or <b>LPD</b> (LPR, 515)</li><li>Address \u2014 <b><span class="ipv">\u2014</span></b>; for LPD, type any name into the \u201cQueue\u201d field</li><li>Under Use, pick <b>Select Software</b> &rarr; find <span class="pmdl">this printer</span></li>',
     setupNote: 'Both protocols (Raw and LPR) work at the same time on this board \u2014 there is no difference in print quality.',
@@ -1317,6 +1336,9 @@ void startConfigPortal() {
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
   WiFi.softAP(AP_SSID, AP_PASSWORD);
+  mobileIpp.begin();
+  MDNS.end();
+  if (MDNS.begin(MDNS_HOSTNAME)) mobileIpp.advertise(MDNS_HOSTNAME);
 
   Serial.printf("[AP] MAC-адрес платы (Wi-Fi): %s\n", WiFi.softAPmacAddress().c_str());
   Serial.printf("[AP] Откройте http://%s в браузере, подключившись к сети \"%s\".\n",
@@ -1330,6 +1352,7 @@ void startConfigPortal() {
     configServer.handleClient();
     checkResetButton(); // также обновляет LED каждую итерацию
     checkPrinterStatusPeriodic(); // статус принтера опрашивается и без домашнего WiFi
+    mobileIpp.poll();
     servePrintClients();          // печать работает и через собственную точку доступа 192.168.4.1
 #if ENABLE_OLED_DISPLAY
     updateOledIp(WiFi.softAPIP().toString());
@@ -1690,7 +1713,7 @@ bool flushPrinterQueue(uint32_t timeoutMs) {
 // подключён, без известных проблем (бумага/замятие/статус не определён)
 // и не занят печатью другого задания (по последнему PJL-опросу).
 bool printerCanAcceptJob() {
-  return printerReady && !printerHasIssue && !printerIsBusyPrinting;
+  return printerReady && !printerHasIssue && !printerIsBusyPrinting && !mobileIpp.busy();
 }
 
 // ==================== PJL: опрос статуса принтера ====================
@@ -1759,7 +1782,7 @@ bool statusTextIndicatesBusy(const String &status) {
 // опросе раз в 2 секунды Serial захлёбывался бы повторами одного и
 // того же значения.
 void checkPrinterStatusPeriodic() {
-  if (!printerReady) return;
+  if (!printerReady || mobileIpp.busy()) return;
   if (millis() - lastPrinterStatusCheckMs < PRINTER_STATUS_INTERVAL_MS) return;
   lastPrinterStatusCheckMs = millis();
 
@@ -1852,9 +1875,11 @@ bool connectWiFi() {
   Serial.println();
   Serial.printf("[WiFi] Подключено. IP: %s\n", WiFi.localIP().toString().c_str());
 
+  MDNS.end();
   if (MDNS.begin(MDNS_HOSTNAME)) {
     MDNS.addService("jetdirect", "tcp", RAW_PORT);
     MDNS.addService("printer", "tcp", LPR_PORT);
+    mobileIpp.advertise(MDNS_HOSTNAME);
     Serial.printf("[mDNS] Доступно как %s.local\n", MDNS_HOSTNAME);
   } else {
     Serial.println("[mDNS] Не удалось запустить mDNS (не критично).");
@@ -1917,6 +1942,14 @@ int readLine(WiFiClient &client, char *buf, size_t maxLen, uint32_t timeoutMs) {
 void sendAck(WiFiClient &client) {
   uint8_t zero = 0x00;
   client.write(&zero, 1);
+}
+
+bool mobileWrite(const uint8_t *data, size_t len) { return sendToPrinter(data, len); }
+bool mobileReady() { return printerReady && !printerHasIssue && !printerIsBusyPrinting; }
+bool mobileFlush() { return flushPrinterQueue(10000); }
+void mobileActivity(bool active) {
+  if (active) setLedState(LED_STATE_PRINTING);
+  else recomputeIdleLedState();
 }
 
 // ==================== RAW / JetDirect (порт 9100) ====================
@@ -2204,6 +2237,7 @@ void setup() {
   lprServer.setNoDelay(true);
   Serial.printf("[TCP] LPR/LPD print server слушает порт %u\n", LPR_PORT);
 
+  mobileIpp.begin();
   bool connected = connectWiFi();
   if (!connected) {
     // Блокирующий вызов — вернётся только через ESP.restart()
@@ -2245,6 +2279,7 @@ void loop() {
   checkResetButton(); // также обновляет LED каждую итерацию
 
   if (WiFi.status() != WL_CONNECTED) {
+    mobileIpp.abort();
     Serial.println("[WiFi] Соединение потеряно, переподключаемся...");
     if (!connectWiFi()) {
       startConfigPortal(); // не вернётся, кроме как через reboot
@@ -2256,6 +2291,7 @@ void loop() {
 
   checkPrinterStatusPeriodic(); // раз в PRINTER_STATUS_INTERVAL_MS опрашивает @PJL INFO STATUS
 
+  mobileIpp.poll();
   servePrintClients();
 
 #if ENABLE_OLED_DISPLAY

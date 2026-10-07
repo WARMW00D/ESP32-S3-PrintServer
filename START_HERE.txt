@@ -1,0 +1,2 @@
+Начните с LOCAL_TEST_ru.md / Start with LOCAL_TEST_en.md.
+Экспериментальная IPP-печать: HP P2015, Android, A4 (книжная), 300 dpi.

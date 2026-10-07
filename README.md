@@ -19,6 +19,33 @@ work with any printer exposing a standard bidirectional USB Printer Class
 
 ![Portal](Portal.png)
 
+## Experimental Android printing (IPP)
+
+The new endpoint `ipp://BOARD_IP:631/ipp/print` accepts **PWG Raster** and
+converts scanlines into PCL 5 for **HP LaserJet P2015**. It advertises
+`_ipp._tcp` via mDNS. Android Default Print Service / Mopria compatibility
+requires phone testing; no Mopria or IPP Everywhere certification is claimed.
+
+Initial scope: **A4 portrait, 300 dpi, monochrome, simplex, one copy, one active job**,
+including multi-page documents. Supported PWG types are `black_1`,
+`sgray_1` and `sgray_8`, with ordered dithering for gray and 6.35 mm margins.
+
+Connect the phone to the same Wi-Fi network or the ESP32 access point,
+enable Android Default Print Service or Mopria, and select **HP P2015 ESP32**.
+Add the board's IP manually if discovery fails. Start with
+`tests/test-page.pdf`; see [LOCAL_TEST_en.md](LOCAL_TEST_en.md).
+
+IPP owns USB while a job is active, preventing RAW/LPR/PJL interleaving.
+IPP status/cancel sockets are serviced between raster rows. Existing RAW/LPR
+handlers still block the main loop during their jobs; individual USB row
+writes and the final flush can wait for the printer.
+
+**AirPrint, Bluetooth, native PDF/JPEG input, 600 dpi and duplex are not
+implemented.** The Android print service must rasterize PDFs. Cancellation
+cannot retract pages already sent or printed. A completed IPP job means the
+USB transfer succeeded, not that physical paper output was confirmed.
+The portal password does not protect port 631.
+
 ## Features
 
 - **USB Host bridge** — ESP32-S3's native USB-OTG port drives the printer
