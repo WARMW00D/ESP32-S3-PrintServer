@@ -209,6 +209,7 @@ bool printerIsBusyPrinting = false; // принтер сейчас физиче�
 uint32_t lastKnownWriteErrors = 0;  // базовая линия для usb.vendorWriteStats().errors — см. sendToPrinter()
 String lastPrinterStatusRaw = "";   // сырой текст последнего ответа @PJL INFO STATUS
 long lastLoggedPjlCode = -999;      // сентинел "ещё не логировали" — гарантирует лог первого опроса после подключения
+int pjlIdProbesLeft = 0;            // попытки @PJL INFO ID, если USB Product string пуст (напр. HP CP2025)
 
 // Настоящие строковые дескрипторы USB устройства (не PJL, не Device ID —
 // это то же самое, что читает демо-скетч EspUsbHostDeviceInfo.ino:
@@ -1583,6 +1584,7 @@ void onUsbDeviceConnected(const EspUsbHostDeviceInfo &device) {
                       "к медленным ответам принтера.");
     }
     lastKnownWriteErrors = 0;
+    pjlIdProbesLeft = 3; // @PJL INFO ID, если USB Product string пуст
 
     uint8_t inEp = usb.vendorInEndpoint(device.address);
     Serial.printf("[USB] Принтер готов. address=%u interface=%u OUT EP=0x%02X (MPS=%u) "
@@ -1723,9 +1725,46 @@ bool printerCanAcceptJob() {
 // use\" ONLINE=TRUE" (норма), "CODE=41900 DISPLAY=\"Load paper\"",
 // "CODE=40021 DISPLAY=\"Door open\"", "CODE=10023 DISPLAY=\"Printingdocument\"".
 // Решение "можно ли принять новое задание" опирается ИСКЛЮЧИТЕЛЬНО на
-// числовой CODE: 0 = всё в порядке, любое другое значение — нет.
+// числовой CODE: 0 и 10001 — в порядке, любое другое значение — нет
+// (см. pjlStatusIsReady; 10001 = "готов" на части HP, напр. CP2025).
 const uint32_t PRINTER_STATUS_INTERVAL_MS = 2000; // опрашивать примерно раз в 2 секунды
 uint32_t lastPrinterStatusCheckMs = 0;
+
+// Часть принтеров (напр. HP CP2025) не имеет USB Product string
+// (iProduct=0) — модель через дескрипторы узнать невозможно вообще. Но
+// PJL-приборы отвечают на @PJL INFO ID строкой вида "HP Color LaserJet
+// CP2025" — используем её как фолбэк имени модели. true — модель получена.
+bool queryPrinterModelViaPjl() {
+  if (!printerReady || printerProduct.length() > 0) return false;
+  if (usb.vendorInEndpoint(printerAddress) == 0) return false;
+
+  const char pjlQuery[] = "\x1b%-12345X@PJL INFO ID\r\n\x1b%-12345X";
+  if (!usb.vendorWrite((const uint8_t *)pjlQuery, strlen(pjlQuery), printerAddress)) return false;
+
+  uint8_t resp[256];
+  size_t len = 0;
+  // CP2025 (и ряд других HP) отвечает на INFO ID медленно, секунды —
+  // ждём дольше, иначе ответ останется в буфере принтера и позже будет
+  // прочитан опросом STATUS как «чужой» пакет.
+  if (!usb.vendorReadSync(resp, sizeof(resp), &len, 3000, printerAddress) || len == 0) return false;
+
+  // Ответ выглядит как "@PJL INFO ID\r\n\"HP Color LaserJet CP2025\"\r\n" —
+  // берём содержимое первых кавычек.
+  String response((const char *)resp, len);
+  int q1 = response.indexOf('"');
+  if (q1 < 0) return false;
+  int q2 = response.indexOf('"', q1 + 1);
+  if (q2 <= q1) return false;
+  String clean;
+  for (int i = q1 + 1; i < q2; i++) {
+    const char c = response[i];
+    clean += (c >= 32 && c < 127) ? c : '?';
+  }
+  clean.trim();
+  if (clean.length() == 0) return false;
+  printerProduct = clean;
+  return true;
+}
 
 bool queryPrinterStatus(String &statusOut) {
   if (!printerReady) return false;
@@ -1751,8 +1790,16 @@ bool queryPrinterStatus(String &statusOut) {
   return true;
 }
 
+// CODE=0 — всё в порядке. CODE=10001 — на части принтеров HP (проверено
+// на HP CP2025) тоже означает "готов к приёму задания", поэтому считаем
+// его нормой — так же, как в прошивке ESP32-C6 + CH375. Любое другое
+// значение (включая -1 "статус не определён") — проблема.
+bool pjlStatusIsReady(long code) {
+  return code == 0 || code == 10001;
+}
+
 // Достаёт числовое значение CODE=... из ответа @PJL INFO STATUS.
-// CODE=0 — всё в порядке; любое другое значение — что-то мешает печати.
+// Интерпретация значения — см. pjlStatusIsReady() выше.
 // Возвращает -1, если CODE вообще не нашёлся (трактуем как "не определён").
 long extractPjlStatusCode(const String &status) {
   int idx = status.indexOf("CODE=");
@@ -1783,6 +1830,18 @@ bool statusTextIndicatesBusy(const String &status) {
 // того же значения.
 void checkPrinterStatusPeriodic() {
   if (!printerReady || mobileIpp.busy()) return;
+
+  // Модель по @PJL INFO ID — только если USB Product string нет (напр. у
+  // HP CP2025) и остались попытки.
+  if (printerProduct.length() == 0 && pjlIdProbesLeft > 0 &&
+      usb.vendorInEndpoint(printerAddress) != 0) {
+    pjlIdProbesLeft--;
+    if (queryPrinterModelViaPjl()) {
+      Serial.printf("[PJL] Модель по @PJL INFO ID: \"%s\"\n", printerProduct.c_str());
+    }
+    return;
+  }
+
   if (millis() - lastPrinterStatusCheckMs < PRINTER_STATUS_INTERVAL_MS) return;
   lastPrinterStatusCheckMs = millis();
 
@@ -1805,7 +1864,12 @@ void checkPrinterStatusPeriodic() {
 
   lastPrinterStatusRaw = status;
   long code = extractPjlStatusCode(status);
-  bool issue = (code != 0); // CODE=0 — единственное значение, означающее "всё в порядке"
+  if (code == -1) {
+    // Не STATUS-ответ — остаток чужого запроса (например, хвост @PJL INFO
+    // ID). Молча пропускаем: статус не меняем и проблему не рисуем.
+    return;
+  }
+  bool issue = !pjlStatusIsReady(code); // 0 и 10001 — единственные значения, означающие "всё в порядке"
   bool busy = statusTextIndicatesBusy(status);
 
   if (code != lastLoggedPjlCode) {

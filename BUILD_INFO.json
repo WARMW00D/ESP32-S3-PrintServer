@@ -1,6 +1,6 @@
 {
   "base_commit": "fd82aa46d2206e01b0cc4116dea4efe35305f90f",
-  "arduino_core": "3.3.10",
+  "arduino_core": "3.3.12",
   "fqbn": "esp32:esp32:esp32s3:CDCOnBoot=default,USBMode=default,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi",
   "libraries": {
     "EspUsbHost": {
@@ -27,10 +27,10 @@
   "scope": "Experimental IPP / A4 portrait / 600 dpi default (300 supported) / monochrome / simplex or HP P2015d duplex / one copy",
   "hardware_tested": false,
   "source_sha256": {
-    "ESP32-S3-PrintServer.ino": "0a4b46bdaeb9af10806189f8d9be0a60066bc60debf428eb44747ba35617ba22",
-    "PwgRaster.h": "a659748925c7ac9da06914b2d4b8c2c9a79c1a31b42b2b1327d7f0645e6c345d",
-    "IppCodec.h": "3483499d81f2b7f561a3fa1e021702bec1bc8f37b2f6843af05989f6c4aee23a",
-    "MobilePrint.h": "ef490cab01c670226a5d7432e7e19a9b0d544272acb9991128f42ebb0f438b35"
+    "ESP32-S3-PrintServer.ino": "f6ba8e72ca4c95709b60d3691430387b816889b69dd6b96e322210a95864057c",
+    "PwgRaster.h": "22e113ab09d5a6da2109166d399d818e2456fc0b565c9acceda548a2e89089141",
+    "IppCodec.h": "dfacb6fc6ad64b9e859b24c90d00596983ad64e33ebf449689ad48fc2f7ea53d",
+    "MobilePrint.h": "3a9774524238ffca3788065eb2512a3d1140f45fc1563f76bfbdbbed3f77768c"
   },
   "version": "V0.1.6"
 }
